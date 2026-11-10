@@ -184,7 +184,7 @@ td.num,th.num{text-align:right}
       <button class="btn" id="bStart" type="button">Выйти в море</button>
       <button class="btn ghost" id="bVR" type="button" hidden>Войти в VR</button>
     </div>
-    <p class="note" id="vrNote">VR на Quest. Удочка в правой руке: зажмите курок, махните и отпустите. Левой рукой возьмитесь боковой кнопкой за ручку катушки и крутите. Приманки лежат в ящике слева: возьмите одну левой рукой и поднесите к кончику опущенного удилища. Правая боковая кнопка берёт нож. Нож режет по плоскости лезвия: ведите его через рыбу, как настоящим. Если положить нож плашмя и водить по рыбе, снимается кожа. Потроха из вскрытого брюха и куски берите левой рукой и кладите в ледник или в ведро.</p>
+    <p class="note" id="vrNote">VR на Quest. Удочка в правой руке: зажмите курок, махните и отпустите. Левой рукой возьмитесь боковой кнопкой за ручку катушки и крутите. Приманки лежат в ящике слева: возьмите одну левой рукой и поднесите к кончику опущенного удилища. Левый стик: ходить по палубе, правый стик влево-вправо: поворот, вверх-вниз: фрикцион. Правая боковая кнопка берёт нож. Нож режет по плоскости лезвия: ведите его через рыбу, как настоящим. Если положить нож плашмя и водить по рыбе, снимается кожа. Потроха из вскрытого брюха и куски берите левой рукой и кладите в ледник или в ведро.</p>
   </div>
 </section>
 
@@ -299,9 +299,9 @@ function blendPal(s){
 const WAVES=[[.8,.6,.17,1.05,1.0,0],[-.3,1,.29,1.45,.55,1.7],[1,-.25,.5,2.0,.3,4.1],[.2,-1,.86,2.7,.15,2.3],[-.7,-.7,1.4,3.4,.07,5.2]]
   .map(([x,z,k,s,a,p])=>{const l=Math.hypot(x,z);return [x/l,z/l,k,s,a,p];});
 let T=0, AMP=.18;
-function waveH(x,z){let h=0;for(const w of WAVES)h+=w[4]*Math.sin((w[0]*x+w[1]*z)*w[2]-w[3]*T+w[5]);return h*AMP;}
+function waveH(x,z){let h=0;for(const w of WAVES)h+=w[4]*Math.sin((w[0]*x+w[1]*z)*w[2]-w[3]*T+w[5]);return h*AMP*(.15+.85*smooth(3.5,11,Math.hypot(x,z)));}
 const f4=n=>n.toFixed(4);
-const GLSL_WAVE=`float waveH(vec2 p){float h=0.0;`+WAVES.map(w=>`h+=${f4(w[4])}*sin(dot(vec2(${f4(w[0])},${f4(w[1])}),p)*${f4(w[2])}-${f4(w[3])}*uT+${f4(w[5])});`).join('')+`return h*uA;}`;
+const GLSL_WAVE=`float waveH(vec2 p){float h=0.0;`+WAVES.map(w=>`h+=${f4(w[4])}*sin(dot(vec2(${f4(w[0])},${f4(w[1])}),p)*${f4(w[2])}-${f4(w[3])}*uT+${f4(w[5])});`).join('')+`return h*uA*(0.15+0.85*smoothstep(3.5,11.0,length(p)));}`;
 
 const skyU={top:{value:new THREE.Color()},hor:{value:new THREE.Color()},sunc:{value:new THREE.Color()},sunDir:{value:V(-.4,.35,-.85).normalize()},flash:{value:0}};
 const sky=new THREE.Mesh(new THREE.SphereGeometry(900,24,14),new THREE.ShaderMaterial({
@@ -1166,7 +1166,7 @@ function catchFish(){
   const pc=buildFishPiece(rec);scene.add(pc.g);pc.g.position.copy(from);
   const jr=save.journal[f.sp.id]||{n:0,best:0};const isRec=f.kg>jr.best;jr.n++;jr.best=Math.max(jr.best,f.kg);save.journal[f.sp.id]=jr;persist();
   sfx.splash(.8);splash(from,14,3,1);buzz('right',.8,120);buzz('left',.5,80);
-  const land=()=>{addPiece(pc);pc.alive=3;};
+  const land=()=>{addPiece(pc);pc.alive=0;};
   const slot=DECK_SPOT.clone().add(V(rand(-.12,.12),.12,rand(-.15,.15)));
   if(Math.random()<.1){
     const face=camera.getWorldPosition(V()).add(camera.getWorldDirection(V()).multiplyScalar(.25));
@@ -1298,7 +1298,8 @@ function stepPhysics(dt){
   _qi.copy(boat.quaternion).invert();const g=V(0,-9.82,0).applyQuaternion(_qi);world.gravity.set(g.x,g.y,g.z);
   updateGrabs(dt);
   world.step(1/60,dt,4);
-  syncPieces();updateLinks();collectPieces();updateFlop(dt);
+  for(const pc of board.pieces){const b=pc.body;if(!b)continue;const v=b.velocity.length();if(v>4)b.velocity.scale(4/v,b.velocity);const w=b.angularVelocity.length();if(w>12)b.angularVelocity.scale(12/w,b.angularVelocity);}
+  syncPieces();updateLinks();collectPieces();
 }
 /* parity test along +y in a piece's own frame */
 function insideLocal(meshes,x,y,z){
@@ -1370,7 +1371,7 @@ function grabPiece(G,pc,pW){
   const piv=pc.body.pointToLocalFrame(new CANNON.Vec3(pl.x,pl.y,pl.z));
   G.c=new CANNON.PointToPointConstraint(pc.body,piv,G.body,new CANNON.Vec3(0,0,0),G.force);world.addConstraint(G.c);pc.body.wakeUp();G.pc=pc;
 }
-function releaseGrab(G){if(G.c)world.removeConstraint(G.c);if(G.pc&&G.pc.body)G.pc.body.wakeUp();G.pc=null;G.c=null;}
+function releaseGrab(G){if(G.c)world.removeConstraint(G.c);if(G.pc&&G.pc.body){const b=G.pc.body;b.wakeUp();const v=b.velocity.length();if(v>2.5)b.velocity.scale(2.5/v,b.velocity);}G.pc=null;G.c=null;}
 function updateGrabs(dt){
   for(const G of [hand,mouse]){
     if(!G.pc)continue;const b=G.body;const k=1/Math.max(dt,1e-3);
@@ -1390,7 +1391,7 @@ function collectPieces(){
     if(!pc.body||hand.pc===pc||mouse.pc===pc)continue;const p=pc.body.position;
     if(Math.abs(p.x-ICE.position.x)<.27&&Math.abs(p.z-ICE.position.z)<.24&&p.y<.95&&p.y>.3){toIce(pc);continue;}
     if(Math.hypot(p.x-BUCKET.position.x,p.z-BUCKET.position.z)<.17&&p.y<.5){toBucket(pc);continue;}
-    if(p.y<-.5||Math.abs(p.z)>1.6||p.x<-3.6||p.x>4.1){const w=pc.g.getWorldPosition(V());removePiece(pc);boat.remove(pc.g);splash(w,10,2.5,.8);sfx.splash(.6);if(!pc.guts)msg('За бортом!',pc.fish.sp.name+' ушла в море',1.4);}
+    if(p.y<-.35||Math.abs(p.z)>4||p.x<-6||p.x>7){const w=pc.g.getWorldPosition(V());removePiece(pc);boat.remove(pc.g);splash(w,10,2.5,.8);sfx.splash(.6);if(!pc.guts)msg('За бортом!',pc.fish.sp.name+' ушла в море',1.4);}
   }
 }
 function boardTopY(){return fishRoot.getWorldPosition(_v2).y;}
@@ -1643,7 +1644,7 @@ function crankHandAngle(hp){const l=rod.crank.parent.worldToLocal(hp.clone()).su
    ========================================================= */
 function clearGroup(g){while(g.children.length)g.remove(g.children[0]);}
 function startTrip(){
-  gameState='sea';tripT=0;storm=0;view='sea';
+  gameState='sea';tripT=0;storm=0;view='sea';walk.off.set(0,0,0);walk.yaw=0;
   ui.start.hidden=true;ui.port.hidden=true;ui.hud.hidden=false;vrPanel.visible=false;
   Object.assign(F,{state:'ready',bite:null,fish:null,tension:0,depth:0,twitch:0,twitchV:0,bend:0});
   if(!F.hasLure){F.hasLure=true;setLureModel(F.lureId);}
@@ -1713,6 +1714,7 @@ function drawVRPanel(reason,total){
    storm, weather, boat
    ========================================================= */
 let boatY=0,pitch=0,roll=0,prevBoatY=0,rigFollow=.4;
+const walk={off:V(),yaw:0,turnCd:0};
 function updateEnv(dt){
   if(gameState==='sea'){tripT+=dt;storm=clamp(tripT/TRIP_LEN,0,1);}else storm=damp(storm,.05,.5,dt);
   AMP=lerp(.16,1.5,Math.pow(storm,1.3));seaU.uT.value=T;seaU.uA.value=AMP;
@@ -1753,13 +1755,14 @@ function catchKg(){let k=0;for(const p of products)k+=p.kg;const seen=new Set();
 function updateBoat(dt){
   const hc=waveH(0,0),hb=waveH(3,0),hs=waveH(-3,0),hp=waveH(0,-1.3),hst=waveH(0,1.3);
   const kg=catchKg(),sink=Math.min(.22,kg/350);
-  boatY=damp(boatY,hc*.85-sink,3,dt);pitch=damp(pitch,Math.atan2(hb-hs,6)*.9,3,dt);roll=damp(roll,-Math.atan2(hst-hp,2.6)*(1+kg/250),3,dt);
-  if(shake>0){shake-=dt;roll+=Math.sin(T*40)*shake*.02;}
+  // the boat stays still for now: no heave, no roll
+  boatY=.05;pitch=0;roll=0;
+  if(shake>0)shake-=dt;
   boatHeaveV=(boatY-prevBoatY)/Math.max(dt,1e-3);prevBoatY=boatY;
   boat.position.y=boatY;boat.rotation.set(roll,0,pitch);boat.updateMatrixWorld(true);
-  rig.position.copy(boat.localToWorld(PLAYER.clone()));
+  rig.position.copy(boat.localToWorld(PLAYER.clone().add(walk.off)));
   rigFollow=damp(rigFollow,view==='table'&&!renderer.xr.isPresenting?Math.max(save.comfort,.9):save.comfort,4,dt);
-  rig.quaternion.identity().slerp(boat.quaternion,rigFollow);
+  rig.quaternion.identity().slerp(boat.quaternion,rigFollow).multiply(_q1.setFromAxisAngle(UP,walk.yaw));
   sea.position.set(Math.round(rig.position.x/4)*4,0,Math.round(rig.position.z/4)*4);
   sky.position.copy(rig.position);
 }
@@ -1803,6 +1806,13 @@ function updateVR(dt){
   if(gameState==='port'){if(rg&&rg.buttons[0]&&rg.buttons[0].pressed&&!R.prev.trig)startTrip();if(R)R.prev.trig=!!(rg&&rg.buttons[0]&&rg.buttons[0].pressed);return;}
   if(gameState!=='sea')return;
   if(rg){
+    // right stick: snap turn left/right around the head, up/down sets the drag
+    const rx=rg.axes.length>3?rg.axes[2]:rg.axes[0]||0,ry=rg.axes.length>3?rg.axes[3]:rg.axes[1]||0;
+    walk.turnCd-=dt;
+    if(Math.abs(rx)>.7&&walk.turnCd<=0){
+      walk.turnCd=.35;const d=-Math.sign(rx)*Math.PI/6;const c=camera.position.clone();c.y=0;
+      const rc=c.clone().applyAxisAngle(UP,walk.yaw+d).sub(c.clone().applyAxisAngle(UP,walk.yaw));walk.off.sub(rc);walk.yaw+=d;buzz('right',.15,20);
+    }else if(Math.abs(rx)<.3&&Math.abs(ry)>.5)F.drag=clamp(F.drag-ry*dt*.5,.2,1.4);
     const trig=rg.buttons[0]&&rg.buttons[0].value>.5,sq=rg.buttons[1]&&rg.buttons[1].pressed;
     if(view==='sea'){
       if(trig&&!R.prev.trig&&F.state==='ready'){if(!F.hasLure)msg('Нет приманки','Возьмите её из ящика слева',1.6);else{F.state='wind';F.charge=0;}}
@@ -1821,7 +1831,13 @@ function updateVR(dt){
   updateOffHand(dt,lg);
   if(lg){
     if(view==='sea'&&!F.inHolder)F.reel=save.reelMode==='hand'?clamp(vrReel.rate/(TAU*1.5),0,1.2):(lg.buttons[0]?lg.buttons[0].value:0);else F.reel=0;
-    const ay=lg.axes.length>3?lg.axes[3]:lg.axes[1]||0;if(Math.abs(ay)>.4)F.drag=clamp(F.drag-ay*dt*.5,.2,1.4);
+    const lx=lg.axes.length>3?lg.axes[2]:lg.axes[0]||0,ly=lg.axes.length>3?lg.axes[3]:lg.axes[1]||0;
+    if(Math.hypot(lx,ly)>.2){
+      // walk where the head looks, staying on deck
+      const fw=camera.getWorldDirection(V());fw.applyQuaternion(_q1.copy(boat.quaternion).invert());fw.y=0;fw.normalize();const rt=V(-fw.z,0,fw.x);
+      walk.off.addScaledVector(fw,-ly*1.4*dt).addScaledVector(rt,lx*1.4*dt);
+      const p=PLAYER.clone().add(walk.off);p.x=clamp(p.x,-.95,2.3);p.z=clamp(p.z,-1.0,1.0);walk.off.copy(p.sub(PLAYER));
+    }
     const x=lg.buttons[4]&&lg.buttons[4].pressed;if(x&&!Lh.prev.a)clearBoard();Lh.prev.a=x;
     const y=lg.buttons[5]&&lg.buttons[5].pressed;if(y){Lh.bHeld+=dt;if(Lh.bHeld>1.5){Lh.bHeld=-99;endTrip('home');}}else Lh.bHeld=0;
   }
@@ -1848,7 +1864,7 @@ function vrHint(){
   if(view==='table')return board.pieces.length?'Режьте ножом по плоскости лезвия. Левой рукой куски в лёд или в ведро. A: убрать стол':'Стол пуст. Боковая кнопка: к удочке';
   switch(F.state){case 'ready':return F.hasLure?'Зажмите правый курок, махните, отпустите':'Возьмите приманку из ящика слева и поднесите к кончику удилища';
     case 'water':return F.bite?'Клюёт! Ждите рывка и подсекайте вверх':save.reelMode==='hand'?'Крутите катушку левой рукой. Без проводки приманка тонет':'Левый курок: проводка';
-    case 'hooked':return 'Крутите катушку. Стик: фрикцион';case 'landing':return 'Рывком поднимите удилище!';default:return '';}
+    case 'hooked':return 'Крутите катушку. Правый стик вверх-вниз: фрикцион';case 'landing':return 'Рывком поднимите удилище!';default:return '';}
 }
 
 /* =========================================================
