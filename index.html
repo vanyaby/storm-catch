@@ -143,7 +143,7 @@ td.num,th.num{text-align:right}
       <div><b>Снасти.</b> Клавиши <b>1–5</b> меняют приманку: блесна, джиг, воблер, донка, светящийся твистер.</div>
       <div><b>Подсечка.</b> После сильного рывка резко дёрните мышь вверх или нажмите <b>Пробел</b>.</div>
       <div><b>Борьба.</b> Колесо мыши подтягивает фрикцион. Уводите курсор в сторону, противоположную рыбе.</div>
-      <div><b>Разделка.</b> <b>E</b> к столу. Проведите нож мышью через рыбу. <b>X</b> переключает рез: поперёк стола или плашмя.</div>
+      <div><b>Разделка.</b> <b>E</b> к столу. Проведите нож мышью через рыбу. <b>X</b> переключает нож: рез поперёк, рез плашмя, снять кожу.</div>
     </div>
     <details>
       <summary>Как разделать рыбу, чтобы дорого продать</summary>
@@ -151,8 +151,9 @@ td.num,th.num{text-align:right}
         <li>Рыба состоит из слоёв: кожа, мясо, хребет с рёбрами, потроха. На срезе видно, что внутри.</li>
         <li>Поперечным резом за жабрами отделите голову.</li>
         <li>Рез плашмя чуть выше хребта снимает филе без костей. Переверните рыбу (<b>F</b>) и снимите второе.</li>
-        <li>Рез рядом с брюхом вскрывает его, и потроха вываливаются. Если разрезать их посередине, разольётся желчь и мясо подешевеет.</li>
-        <li>Филе снова плашмя у самой кожи даёт филе без кожи, оно дороже всего.</li>
+        <li>Рез рядом с брюхом вскрывает его, и потроха выглядывают наружу. Достаньте их рукой: в VR левой рукой, на компьютере клавишей <b>G</b> или правой кнопкой мыши по ним. Если разрезать потроха посередине, разольётся желчь и мясо подешевеет.</li>
+        <li>После двух филе на столе остаётся хребет с рёбрами, его можно сдать на уху.</li>
+        <li>Чтобы снять кожу, водите плоскостью ножа по филе: кожа сходит, под ней мясо. Филе без кожи стоит дороже всего.</li>
         <li>Правая кнопка мыши по куску кладёт его в лёд, Shift + правая кнопка выбрасывает в ведро. <b>Q</b> убирает со стола всё сразу.</li>
       </ul>
     </details>
@@ -175,7 +176,7 @@ td.num,th.num{text-align:right}
       <button class="btn" id="bStart" type="button">Выйти в море</button>
       <button class="btn ghost" id="bVR" type="button" hidden>Войти в VR</button>
     </div>
-    <p class="note" id="vrNote">VR на Quest. Удочка в правой руке: зажмите курок, махните и отпустите. Левой рукой возьмитесь боковой кнопкой за ручку катушки и крутите. Приманки лежат в ящике слева: возьмите одну левой рукой и поднесите к кончику опущенного удилища. Правая боковая кнопка берёт нож. Нож режет по плоскости лезвия: ведите его через рыбу, как настоящим. Куски берите левой рукой и кладите в ледник или в ведро.</p>
+    <p class="note" id="vrNote">VR на Quest. Удочка в правой руке: зажмите курок, махните и отпустите. Левой рукой возьмитесь боковой кнопкой за ручку катушки и крутите. Приманки лежат в ящике слева: возьмите одну левой рукой и поднесите к кончику опущенного удилища. Правая боковая кнопка берёт нож. Нож режет по плоскости лезвия: ведите его через рыбу, как настоящим. Если положить нож плашмя и водить по рыбе, снимается кожа. Потроха из вскрытого брюха и куски берите левой рукой и кладите в ледник или в ведро.</p>
   </div>
 </section>
 
@@ -226,22 +227,22 @@ const knifeMult=()=>UPG.knife.vals[save.knife];
    ========================================================= */
 const SPECIES=[
   {id:'mackerel',name:'Скумбрия',fam:'round',len:[.28,.46],k:9.5,price:14,hR:.18,wR:.12,xh:.8,
-   back:0x2d7484,belly:0xdfe9e7,stripe:0x13262d,flesh:0xe8b49e,fin:0x3a5a62,
+   back:0x2d7484,belly:0xdfe9e7,stripe:0x13262d,flesh:0xd99682,blood:0x6a2620,fin:0x3a5a62,
    str:.36,stam:6,agility:1.6,modes:['zig','run','zig','shake'],depth:[0,14],retrieve:1,storm:[0,1],w:1.0,bite:'rapid',window:.4,hot:3.2},
   {id:'perch',name:'Морской окунь',fam:'round',len:[.24,.44],k:14,price:16,hR:.32,wR:.14,xh:.74,
-   back:0xc8432a,belly:0xf3a86b,flesh:0xf4d6c8,fin:0xd65a36,spiny:true,
+   back:0xc8432a,belly:0xf3a86b,flesh:0xf2c6b2,fin:0xd65a36,spiny:true,
    str:.42,stam:7,agility:.8,modes:['run','shake','charge','dive'],depth:[6,30],retrieve:.5,storm:[0,1],w:.85,bite:'double',window:.36},
   {id:'cod',name:'Треска',fam:'round',len:[.55,1.0],k:9,price:9,hR:.21,wR:.15,xh:.76,
-   back:0x7d7647,belly:0xeae5cf,spots:0x4d482a,flesh:0xf6f2e8,fin:0x6a6440,
+   back:0x7d7647,belly:0xeae5cf,spots:0x4d482a,flesh:0xf0d2bd,fin:0x6a6440,
    str:.6,stam:12,agility:.4,modes:['dive','run','rest','dive'],depth:[14,45],retrieve:0,storm:[0,1],w:.9,bite:'heavy',window:.6},
   {id:'halibut',name:'Палтус',fam:'flat',len:[.8,1.4],k:12,price:10,hR:.46,wR:.07,xh:.82,
-   back:0x5c4b33,belly:0xf2eee5,spots:0x392d1d,flesh:0xf7f3ea,fin:0x4c3e2a,
+   back:0x5c4b33,belly:0xf2eee5,spots:0x392d1d,flesh:0xf2d8c2,fin:0x4c3e2a,
    str:.85,stam:18,agility:.3,modes:['dive','rest','dive','run'],depth:[24,45],retrieve:0,storm:[.12,1],w:.4,bite:'snag',window:.7},
   {id:'tuna',name:'Тунец',fam:'round',len:[.9,1.4],k:15,price:11,hR:.27,wR:.21,xh:.8,
-   back:0x1b2b5c,belly:0xd8dce6,flesh:0xb33039,fin:0xe9c23a,
+   back:0x1b2b5c,belly:0xd8dce6,flesh:0xa8232f,blood:0x45121a,fin:0xe9c23a,
    str:1.05,stam:26,agility:1,modes:['run','jump','charge','run','shake'],depth:[0,22],retrieve:1,storm:[.33,1],w:.45,bite:'hit',window:.3,hot:2.2},
   {id:'eel',name:'Грозовой угорь',fam:'eel',len:[.8,1.3],k:2.2,price:34,hR:.075,wR:.065,xh:.9,
-   back:0x2a2575,belly:0x6c80e6,flesh:0xf1e3f5,fin:0x5be7ff,glow:0x2fd6ff,
+   back:0x2a2575,belly:0x6c80e6,flesh:0xe8cde4,fin:0x5be7ff,glow:0x2fd6ff,
    str:.55,stam:10,agility:1.3,modes:['shake','zig','run'],depth:[0,25],retrieve:.5,storm:[.68,1],w:.6,bite:'buzz',window:.45},
 ];
 const SP=Object.fromEntries(SPECIES.map(s=>[s.id,s]));
@@ -501,10 +502,30 @@ function fishDims(sp,L){
   return {L,H,W,X,wmax};
 }
 const matCache={};
+/* skin keeps its vertex colours; every cut face (tag 1) is painted as meat: muscle flakes + a dark bloodline along the lateral line */
 function fishMat(sp){
-  if(!matCache[sp.id])matCache[sp.id]=new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true,roughness:.42,metalness:.15,side:THREE.DoubleSide,
+  if(matCache[sp.id])return matCache[sp.id];
+  const m=new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true,roughness:.42,metalness:.15,side:THREE.DoubleSide,
     emissive:sp.glow||0x000000,emissiveIntensity:sp.glow?.35:0});
-  return matCache[sp.id];
+  const Lm=(sp.len[0]+sp.len[1])/2;
+  const U={uFlesh:{value:new THREE.Color(sp.flesh)},uBlood:{value:new THREE.Color(sp.blood||sp.flesh)},uFreq:{value:TAU/(Lm/13)},uBloodW:{value:sp.blood?Lm*.014:0}};
+  m.onBeforeCompile=sh=>{
+    Object.assign(sh.uniforms,U);
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute float tag;varying float vTag;varying vec3 vLoc;')
+      .replace('#include <begin_vertex>','#include <begin_vertex>\nvTag=tag;vLoc=position;');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uFlesh;uniform vec3 uBlood;uniform float uFreq;uniform float uBloodW;varying float vTag;varying vec3 vLoc;')
+      .replace('#include <color_fragment>',`#include <color_fragment>
+      if(vTag>0.5&&vTag<1.5){
+        float ch=vLoc.x*uFreq+abs(vLoc.z)*uFreq*1.7;
+        float band=smoothstep(0.8,0.97,sin(ch));
+        float fine=0.5+0.5*sin(ch*3.0+vLoc.y*40.0);
+        vec3 c=uFlesh*(1.0-0.17*band-0.05*fine);
+        if(uBloodW>0.0){float b=1.0-smoothstep(uBloodW*0.55,uBloodW,abs(vLoc.z));c=mix(c,uBlood,b*0.85);}
+        diffuseColor.rgb=c;
+      }`);
+  };
+  m.customProgramCacheKey=()=>'fish-'+sp.id;
+  matCache[sp.id]=m;return m;
 }
 const innerMat=new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true,roughness:.5,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-4});
 const finMat=new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true,roughness:.55,side:THREE.DoubleSide});
@@ -538,10 +559,11 @@ function tubeSolid(sp,d,x0,x1,o){
     const hint=[0,Math.sin(thm),Math.cos(thm)];skinCol(sp,(R[k].xn+R[k+1].xn)/2,thm,tmp);
     pushTri(S,a,b,c,tmp,0,hint);tmp.multiplyScalar(.96);pushTri(S,a,c,e,tmp,0,hint);
   }
-  {const r=R[0].r,ctr=[d.X(x0),0,0];const col=o.startSkin?skinCol(sp,x0,Math.PI/2,new THREE.Color()):inner;for(let j=0;j<RING_N;j++)pushTri(S,ctr,r[j],r[(j+1)%RING_N],col,o.startSkin?0:1,[-1,0,0]);}
+  const iTag=o.innerTag||1;
+  {const r=R[0].r,ctr=[d.X(x0),0,0];const col=o.startSkin?skinCol(sp,x0,Math.PI/2,new THREE.Color()):inner;for(let j=0;j<RING_N;j++)pushTri(S,ctr,r[j],r[(j+1)%RING_N],col,o.startSkin?0:iTag,[-1,0,0]);}
   {const r=R[nS-1].r;
    if(o.nose){const tip=[d.X(x1)+d.L*.035,0,-d.H(x1)*.15];for(let j=0;j<RING_N;j++){const thm=(j+.5)/RING_N*TAU;skinCol(sp,1,thm,tmp);pushTri(S,r[j],r[(j+1)%RING_N],tip,tmp,0,[1,Math.sin(thm)*.5,Math.cos(thm)*.5]);}}
-   else{const ctr=[d.X(x1),0,0];for(let j=0;j<RING_N;j++)pushTri(S,ctr,r[j],r[(j+1)%RING_N],inner,1,[1,0,0]);}}
+   else{const ctr=[d.X(x1),0,0];for(let j=0;j<RING_N;j++)pushTri(S,ctr,r[j],r[(j+1)%RING_N],inner,iTag,[1,0,0]);}}
   return S;
 }
 function addGeoToSoup(S,geo,mat4,colFn,tag){
@@ -561,7 +583,7 @@ function boneSolid(sp,d){
       for(const side of sp.fam==='flat'?[1,-1]:[-1]){
         const h=d.H(x)*(sp.fam==='flat'?.8:.72);
         M.compose(V(d.X(x),0,side*h*.48),new THREE.Quaternion().setFromAxisAngle(UP,side*.35),V(1,1,1));
-        addGeoToSoup(S,new THREE.BoxGeometry(d.L*.006,Math.max(.0015,d.W(x)*.1),h),M,()=>bone,1);
+        addGeoToSoup(S,new THREE.BoxGeometry(d.L*.006,sy*.9,h),M,()=>bone,1);
       }
     }
   }
@@ -609,7 +631,7 @@ function newFishRec(sp,len,kg){return {sp,len,kg,d:fishDims(sp,len),fresh:1,bile
 function buildFishPiece(fish){
   const sp=fish.sp,d=fish.d,xh=sp.xh;
   const body=tubeSolid(sp,d,0,xh,{inner:sp.flesh,startSkin:true});
-  const head=tubeSolid(sp,d,xh,1,{inner:0x9a3a34,nose:true});eyesInto(head,sp,d);
+  const head=tubeSolid(sp,d,xh,1,{inner:0x9a3a34,innerTag:2,nose:true});eyesInto(head,sp,d);
   const bone=boneSolid(sp,d),guts=gutsSolid(sp,d),fins=finSoup(sp,d);
   const g=new THREE.Group();
   const mb=layerMesh(soupGeo(body),'body',sp),mh=layerMesh(soupGeo(head),'head',sp),mo=layerMesh(soupGeo(bone),'bone',sp),mg=layerMesh(soupGeo(guts.S),'guts',sp),mf=layerMesh(soupGeo(fins),'fins',sp);
@@ -622,7 +644,7 @@ function buildFishPiece(fish){
 /* =========================================================
    mesh slicing by a plane (closed soups get capped)
    ========================================================= */
-function sliceGeo(geo,n,dd,capCol,doCap){
+function sliceGeo(geo,n,dd,capCol,doCap,capTag=1){
   const P=geo.attributes.position.array,C=geo.attributes.color.array,G=geo.attributes.tag.array;
   const A=soup(),B=soup();const segs=[];
   const vert=i=>[P[i*3],P[i*3+1],P[i*3+2]];
@@ -648,7 +670,7 @@ function sliceGeo(geo,n,dd,capCol,doCap){
     const groups={};for(const k in parent){const r=find(k);(groups[r]||(groups[r]={sum:[0,0,0],n:0})).n++;const g=groups[r];g.sum[0]+=pts[k][0];g.sum[1]+=pts[k][1];g.sum[2]+=pts[k][2];}
     const col=new THREE.Color(capCol);
     for(const [a,b] of segs){const g=groups[find(keyOf(a))];const ctr=[g.sum[0]/g.n,g.sum[1]/g.n,g.sum[2]/g.n];
-      pushTri(A,ctr,a,b,col,1,[-n.x,-n.y,-n.z]);pushTri(B,ctr,a,b,col,1,[n.x,n.y,n.z]);}
+      pushTri(A,ctr,a,b,col,capTag,[-n.x,-n.y,-n.z]);pushTri(B,ctr,a,b,col,capTag,[n.x,n.y,n.z]);}
   }
   return {A:A.p.length?soupGeo(A):null,B:B.p.length?soupGeo(B):null};
 }
@@ -664,40 +686,71 @@ function slicePiece(pc,planeW,quiet){
   let crosses=false;
   for(const m of meshes){if(!SOLID.has(m.userData.kind))continue;const p=m.geometry.attributes.position.array;let pos=0,neg=0;for(let i=0;i<p.length;i+=3){const s=n.x*p[i]+n.y*p[i+1]+n.z*p[i+2]-dd;if(s>0)pos++;else neg++;if(pos&&neg)break;}if(pos&&neg){crosses=true;break;}}
   if(!crosses)return null;
-  const A=[],B=[];let gutsOut=null;
+  const A=[],B=[];
   for(const m of meshes){
     const k=m.userData.kind;
     if(k==='guts'){
+      // guts are never sliced: a cut near them opens the belly, they bulge out and wait to be pulled by hand
       const c=m.userData.c,r=m.userData.r;const dist=n.x*c[0]+n.y*c[1]+n.z*c[2]-dd;
       const h=Math.sqrt((r[0]*n.x)**2+(r[1]*n.y)**2+(r[2]*n.z)**2);
-      if(Math.abs(dist)<h+pc.fish.d.H(.5)*.5){gutsOut=m;if(Math.abs(dist)<h*.28&&!pc.fish.bile){pc.fish.bile=true;if(!quiet)msg('Желчь разлилась!','Рез прошёл через потроха. Мясо этой рыбы подешевеет',2.2);}}
-      else (dist>0?A:B).push(m);
+      if(Math.abs(dist)<h+pc.fish.d.H(.5)*.5){
+        if(Math.abs(dist)<h*.28&&!pc.fish.bile){pc.fish.bile=true;if(!quiet)msg('Желчь разлилась!','Рез прошёл через потроха. Мясо этой рыбы подешевеет',2.2);}
+        else if(!m.userData.exposed&&!quiet)msg('Брюхо вскрыто',renderer.xr.isPresenting?'Достаньте потроха левой рукой':'Достаньте потроха: G или правая кнопка мыши по ним',2.2);
+        m.userData.exposed=true;
+        const target=(dist>=0?1:-1)*h*.45;
+        if(Math.abs(dist)>Math.abs(target)){const dl=target-dist;m.geometry.translate(n.x*dl,n.y*dl,n.z*dl);c[0]+=n.x*dl;c[1]+=n.y*dl;c[2]+=n.z*dl;m.geometry.boundingSphere=null;m.geometry.boundingBox=null;}
+      }
+      (dist>0?A:B).push(m);
       continue;
     }
     const capCol=k==='body'?sp.flesh:CAPCOL[k];
-    const res=sliceGeo(m.geometry,n,dd,capCol,k!=='fins');
+    const res=sliceGeo(m.geometry,n,dd,capCol,k!=='fins',k==='head'?2:1);
     if(res.A){const mm=layerMesh(res.A,k,sp);if(k==='guts'){mm.userData.c=m.userData.c;mm.userData.r=m.userData.r;}A.push(mm);}
     if(res.B){const mm=layerMesh(res.B,k,sp);B.push(mm);}
     m.geometry.dispose();
   }
   const mk=list=>{if(!list.some(m=>SOLID.has(m.userData.kind)))return null;const g=new THREE.Group();g.position.copy(pc.g.position);g.quaternion.copy(pc.g.quaternion);g.scale.copy(pc.g.scale);pc.g.parent.add(g);for(const m of list)g.add(m);return {g,fish:pc.fish};};
   const pA=mk(A),pB=mk(B);
-  for(const p of [pA,pB])if(p)p.skinless=!!pc.skinless;
-  // a thin slab that is mostly skin = the skin was taken off the other part
+  // a thin slab that is mostly skin is waste
   if(pA&&pB){
     const st=p=>{let v=0,sk=0,cu=0;for(const m of p.g.children){if(m.userData.kind!=='body')continue;v+=geoVolume(m.geometry);const a=geoAreas(m.geometry);sk+=a.skin;cu+=a.cut;}return {v,sk:sk/(sk+cu+1e-9)};};
-    const a=st(pA),b=st(pB);const [small,big,ss]=a.v<b.v?[pA,pB,a]:[pB,pA,b];
-    if(ss.v<.18*(a.v+b.v)&&ss.sk>.35){big.skinless=true;small.skinSlab=true;}
+    const a=st(pA),b=st(pB);const [small,ss]=a.v<b.v?[pA,a]:[pB,b];
+    if(ss.v<.18*(a.v+b.v)&&ss.sk>.35)small.skinSlab=true;
   }
   // fins left without any solid part are dropped
   pc.g.parent.remove(pc.g);
   const nW=planeW.normal;
   const nudge=(p,s)=>{if(!p)return;p.g.updateMatrixWorld(true);const w=p.g.getWorldPosition(V()).addScaledVector(nW,s*.004);p.g.position.copy(p.g.parent.worldToLocal(w));};
   nudge(pA,1);nudge(pB,-1);
-  const out=[pA,pB].filter(Boolean);
-  if(gutsOut){const g=new THREE.Group();g.position.copy(pc.g.position);g.quaternion.copy(pc.g.quaternion);(pA||pB).g.parent.add(g);g.add(gutsOut);const gp={g,fish:pc.fish,guts:true};
-    const w=g.getWorldPosition(V()).add(V(0,.035,0));g.position.copy(g.parent.worldToLocal(w));out.push(gp);}
-  return out;
+  return [pA,pB].filter(Boolean);
+}
+const gutsOf=pc=>pc.g.children.find(o=>o.userData&&o.userData.kind==='guts');
+function gutsWorld(pc){const m=gutsOf(pc);if(!m)return null;const c=m.userData.c;return {m,p:pc.g.localToWorld(V(c[0],c[1],c[2])),r:Math.max(...m.userData.r)};}
+/* take the guts out of an opened belly; returns the new guts piece */
+function pullGuts(pc){
+  const m=gutsOf(pc);if(!m||!m.userData.exposed)return null;
+  const g=new THREE.Group();g.position.copy(pc.g.position);g.quaternion.copy(pc.g.quaternion);pc.g.parent.add(g);g.add(m);
+  const gp={g,fish:pc.fish,guts:true};board.pieces.push(gp);sfx.squelch();buzz('left',.6,60);return gp;
+}
+/* rub the flat of the blade over the fish: skin faces under it turn into bare meat */
+function stripSkin(pc,ptsW,rad){
+  let n=0;const r2=rad*rad;
+  for(const m of pc.g.children){
+    if(!m.isMesh||m.userData.kind!=='body')continue;
+    m.updateMatrixWorld(true);const inv=m.matrixWorld.clone().invert();const pl=ptsW.map(p=>p.clone().applyMatrix4(inv));
+    const P=m.geometry.attributes.position.array,ta=m.geometry.attributes.tag.array;let hit=0;
+    for(let i=0,k=0;i<P.length;i+=9,k+=3){
+      if(ta[k]>.5)continue;
+      const cx=(P[i]+P[i+3]+P[i+6])/3,cy=(P[i+1]+P[i+4]+P[i+7])/3,cz=(P[i+2]+P[i+5]+P[i+8])/3;
+      outer:for(const q of pl){
+        for(const [x,y,z] of [[cx,cy,cz],[P[i],P[i+1],P[i+2]],[P[i+3],P[i+4],P[i+5]],[P[i+6],P[i+7],P[i+8]]]){
+          const dx=x-q.x,dy=y-q.y,dz=z-q.z;if(dx*dx+dy*dy+dz*dz<r2){ta[k]=ta[k+1]=ta[k+2]=1;hit++;break outer;}}
+      }
+    }
+    if(hit){m.geometry.attributes.tag.needsUpdate=true;n+=hit;}
+  }
+  if(n){cutSound=.7;cutOnLine=false;sfx.click(.06);buzz('right',.3,15);const p=ptsW[ptsW.length>>1];splash(p,3,.6,.25);}
+  return n;
 }
 /* what a piece is worth */
 function pieceStats(pc){
@@ -715,11 +768,13 @@ function evalPiece(pc){
   if(s.guts>v0.guts*.3){kind='Непотрошёная';mult=.55;}
   else if(hf>.5&&mf<.12){kind='Голова';return {kind,value:base*.25*hf*(.5+.5*f.fresh),kg:kgPiece,waste:false};}
   else if(s.bone>v0.bone*.12){
-    if(f.sp.fam==='eel'&&mf<.45){kind='Стейк';mult=1.5;}
+    if(f.sp.fam==='eel'&&mf<.45&&mf>.08){kind='Стейк';mult=1.5;}
+    else if(mf<.15){kind='Хребет на уху';mult=.5;}
     else if(mf>.6){kind='Тушка';mult=1.0;}
     else{kind='Кусок на кости';mult=1.15;}
   }else{
-    if(pc.skinless){kind='Филе без кожи';mult=1.9;}else{kind='Филе';mult=1.6;}
+    const skinFrac=s.skin/(s.skin+s.cut+1e-9);
+    if(skinFrac<.15){kind='Филе без кожи';mult=1.9;}else if(skinFrac<.3){kind='Филе, кожа снята не до конца';mult=1.7;}else{kind='Филе';mult=1.6;}
   }
   if(hf>.2&&kind!=='Голова')mult*=.85;
   if(mf<.04){kind='Обрезки';mult=.4;}
@@ -917,7 +972,9 @@ addEventListener('keydown',e=>{
     case 'KeyE':case 'Tab':e.preventDefault();toggleView();break;
     case 'KeyQ':clearBoard();break;
     case 'KeyF':flipPieceDesk();break;
-    case 'KeyX':board.mode=board.mode==='v'?'h':'v';if(board.mode==='h')autoHeight();sfx.click(.2);lastHintKey='';msg(board.mode==='v'?'Рез поперёк':'Рез плашмя',board.mode==='h'?'Колесо мыши меняет высоту':'',1.1);break;
+    case 'KeyX':board.mode={v:'h',h:'s',s:'v'}[board.mode];if(board.mode==='h')autoHeight();sfx.click(.2);lastHintKey='';
+      msg({v:'Рез поперёк',h:'Рез плашмя',s:'Снять кожу'}[board.mode],{v:'',h:'Колесо мыши меняет высоту',s:'Водите плоскостью ножа по рыбе'}[board.mode],1.1);break;
+    case 'KeyG':if(view==='table')pullGutsDesk();break;
     case 'KeyR':goHome();break;
     case 'KeyM':toggleMute();break;
     case 'BracketRight':case 'Equal':case 'NumpadAdd':setDrag(F.drag+.05);break;
@@ -1230,7 +1287,7 @@ function autoHeight(){
   // put the horizontal cut just above the backbone of the biggest piece
   let best=null,bv=0;for(const pc of board.pieces){const v=pc.g.children.length;if(v>bv){bv=v;best=pc;}}
   if(!best)return;const bones=best.g.children.filter(o=>o.isMesh&&o.userData.kind==='bone');
-  if(bones.length)board.hY=clamp(localBox(bones).max.y+.004,.002,.3);
+  if(bones.length)board.hY=clamp(localBox(bones).max.y-.0008,.002,.3);
   else board.hY=clamp(localBox(solidMeshes(best)).max.y*.5,.002,.3);
 }
 /* bounding box in the table's own frame (immune to the boat's tilt) */
@@ -1242,7 +1299,7 @@ function localBox(meshes){
 function doSlice(pc,planeW){
   const out=slicePiece(pc,planeW);if(!out)return false;
   const i=board.pieces.indexOf(pc);if(i>=0)board.pieces.splice(i,1);
-  for(const p of out){board.pieces.push(p);if(p.guts){sfx.squelch();if(!renderer.xr.isPresenting)setTimeout(()=>{if(board.pieces.includes(p))toBucket(p,true);},450);}}
+  for(const p of out)board.pieces.push(p);
   sfx.chop();buzz('right',.8,60);cutSound=1;
   return true;
 }
@@ -1255,9 +1312,9 @@ function boardPointer(){
   const y=boardTopY()+(board.mode==='h'?board.hY:.02);const t=(y-raycaster.ray.origin.y)/raycaster.ray.direction.y;
   if(!(t>0))return null;return raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction,t);
 }
-function deskCutStart(){const p=boardPointer();if(p)desk.drag={a:p,b:p.clone()};}
+function deskCutStart(){if(board.mode==='s')return;const p=boardPointer();if(p)desk.drag={a:p,b:p.clone()};}
 function deskCutEnd(){
-  const d=desk.drag;desk.drag=null;desk.line.visible=false;if(!d)return;
+  const d=desk.drag;desk.drag=null;desk.line.visible=false;if(!d||board.mode==='s')return;
   const seg=d.b.clone().sub(d.a);seg.y=0;if(seg.length()<.03)return;
   const meshes=allBoardMeshes();const down=V(0,-1,0);
   const hitAt=p=>{raycaster.set(V(p.x,p.y+.6,p.z),down);const h=raycaster.intersectObjects(meshes,false);return new Set(h.map(x=>x.object.userData.pc));};
@@ -1284,13 +1341,31 @@ function updateDeskKnife(){
   if(p){
     const dir=desk.drag?desk.drag.b.clone().sub(desk.drag.a):V(1,0,0);dir.y=0;const yaw=dir.lengthSq()>1e-5?Math.atan2(-dir.x,-dir.z):-Math.PI/2;
     const q=new THREE.Quaternion().setFromEuler(board.mode==='v'?new THREE.Euler(-.5,yaw+.25,0,'YXZ'):new THREE.Euler(-.08,yaw+.25,Math.PI/2,'YXZ'));
-    knife.quaternion.copy(q);const base=p.clone();if(!desk.drag)base.y+=.05;knife.position.copy(base).sub(KNIFE_TIP.clone().applyQuaternion(q));
+    knife.quaternion.copy(q);let base=p.clone();
+    if(board.mode==='s'){const h=hitUnderCursor();if(h)base=h.point.clone();base.y+=ptr.down?.004:.04;knife.position.copy(base).sub(V(0,0,-.12).applyQuaternion(q));}
+    else{if(!desk.drag)base.y+=.05;knife.position.copy(base).sub(KNIFE_TIP.clone().applyQuaternion(q));}
   }
+  deskSkin();
 }
-function pieceUnderCursor(){
-  raycaster.setFromCamera(ptr.ndc,camera);const h=raycaster.intersectObjects(allBoardMeshes(),false)[0];return h?h.object.userData.pc:null;
+function hitUnderCursor(){raycaster.setFromCamera(ptr.ndc,camera);return raycaster.intersectObjects(allBoardMeshes(),false)[0]||null;}
+function pieceUnderCursor(){const h=hitUnderCursor();return h?h.object.userData.pc:null;}
+function gutsNear(pc,p,extra){const gw=gutsWorld(pc);return gw&&gw.m.userData.exposed&&p.distanceTo(gw.p)<gw.r+extra;}
+function pieceAction(where){
+  const h=hitUnderCursor();if(!h)return;const pc=h.object.userData.pc;
+  if(where!=='bucket'&&gutsNear(pc,h.point,.03)){const gp=pullGuts(pc);if(gp)toBucket(gp,true);return;}
+  if(where==='bucket')toBucket(pc);else toIce(pc);
 }
-function pieceAction(where){const pc=pieceUnderCursor();if(!pc)return;if(where==='bucket')toBucket(pc);else toIce(pc);}
+function pullGutsDesk(){
+  const h=hitUnderCursor();let pc=h&&h.object.userData.pc;
+  if(!pc||!gutsOf(pc)||!gutsOf(pc).userData.exposed)pc=board.pieces.find(p=>!p.guts&&gutsOf(p)&&gutsOf(p).userData.exposed);
+  if(!pc){const any=board.pieces.find(p=>!p.guts&&gutsOf(p));msg(any?'Брюхо ещё закрыто':'Потрохов нет',any?'Сначала вскройте его резом рядом с брюхом':'',1.6);return;}
+  const gp=pullGuts(pc);if(gp)setTimeout(()=>{if(board.pieces.includes(gp))toBucket(gp,true);},350);
+}
+function deskSkin(){
+  if(view!=='table'||board.mode!=='s'||!ptr.down)return;
+  const h=hitUnderCursor();if(!h)return;const pc=h.object.userData.pc;if(pc.guts)return;
+  stripSkin(pc,[h.point],.022);
+}
 function flipPieceDesk(){
   if(view!=='table')return;let pc=pieceUnderCursor();
   if(!pc){let bv=0;for(const p of board.pieces){const v=p.g.children.length;if(v>bv){bv=v;pc=p;}}}
@@ -1343,13 +1418,20 @@ function pointInsidePiece(pc,p){
   raycaster.set(p,V(0,1,0));let n=0;for(const m of solidMeshes(pc)){if(m.userData.kind!=='body'&&m.userData.kind!=='head')continue;n+=raycaster.intersectObject(m,false).length;}return n%2===1;
 }
 function edgeWorld(){return KNIFE_EDGE.map(p=>knife.localToWorld(p.clone()));}
+const KNIFE_FACE=[];for(const y of [-.018,-.006,.006])for(const z of [-.03,-.07,-.11,-.15,-.19])KNIFE_FACE.push(V(0,y,z));
+function knifeFace(){return KNIFE_FACE.map(p=>knife.localToWorld(p.clone()));}
 function updateVRCut(dt){
   vrCut.outline.visible=false;
   if(view!=='table'||!renderer.xr.isPresenting||knife.parent===knifeRest)return;
   const edge=edgeWorld();const nW=V(1,0,0).applyQuaternion(knife.getWorldQuaternion(new THREE.Quaternion())).normalize();
+  const tipNow=knife.localToWorld(KNIFE_TIP.clone());const kSpeed=vrCut.lastTip?tipNow.distanceTo(vrCut.lastTip)/Math.max(dt,1e-3):0;vrCut.lastTip=tipNow;
+  const upT=V(0,1,0).applyQuaternion(fishRoot.getWorldQuaternion(new THREE.Quaternion()));const flat=Math.abs(nW.dot(upT))>.6;
   if(!vrCut.locked){
     for(const pc of board.pieces){if(pc.guts||hands.left&&hands.left.held===pc)continue;
-      if(edge.slice(1,5).some(p=>pointInsidePiece(pc,p))){
+      const inside=edge.slice(1,5).some(p=>pointInsidePiece(pc,p));
+      // flat of the blade sliding over the fish (not into it) scrapes the skin off
+      if(!inside&&flat&&kSpeed>.06){stripSkin(pc,knifeFace(),.022);continue;}
+      if(inside){
         const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(nW,edge[3]);const segs=sectionSegs(pc,plane);if(segs.length<3)continue;
         const o=edge[3].clone(),u=V().crossVectors(Math.abs(nW.y)<.9?UP:V(1,0,0),nW).normalize(),v=V().crossVectors(nW,u);
         const pr=w=>{const d=w.clone().sub(o);return [d.dot(u),d.dot(v)];};const s2=segs.map(([a,b])=>[pr(a),pr(b)]);
@@ -1400,7 +1482,12 @@ function updateLeftHand(dt,lg){
   const sq=!!(lg&&lg.buttons[1]&&lg.buttons[1].pressed);const hp=handWorld(Lh);
   // grab start
   if(sq&&!Lh.prev.sq){
-    if(view==='table'){const pc=nearestPiece(hp,.06);if(pc){removePiece(pc);Lh.grip.attach(pc.g);Lh.held=pc;buzz('left',.5,40);if(pc.guts)sfx.squelch();}}
+    if(view==='table'){
+      // an opened belly first: pull the guts out by hand
+      let pc=board.pieces.find(p=>!p.guts&&gutsNear(p,hp,.05));
+      if(pc)pc=pullGuts(pc);else pc=nearestPiece(hp,.06);
+      if(pc){removePiece(pc);Lh.grip.attach(pc.g);Lh.held=pc;buzz('left',.5,40);if(pc.guts)sfx.squelch();}
+    }
     else{
       const knob=rod.knob.getWorldPosition(V());
       if(!F.inHolder&&save.reelMode==='hand'&&hp.distanceTo(knob)<.12){vrReel.held=true;vrReel.prevA=crankHandAngle(hp);buzz('left',.3,30);}
@@ -1678,9 +1765,10 @@ function updateHUD(dt){
   ui.gLine.textContent=Math.round(lineOut)+' м'+(F.state==='water'?` · глуб. ${Math.round(F.depth)}`:'');
   ui.gStam.style.width=(fight&&F.fish?F.fish.stamina*100:0)+'%';
   if(view==='table'){
-    if(board.pieces.length)setHint('t-'+board.mode,board.mode==='v'
-      ?'<b>Рез поперёк.</b> Зажмите <kbd>ЛКМ</kbd> и проведите нож через кусок от края до края. <kbd>X</kbd> рез плашмя, <kbd>F</kbd> перевернуть, <kbd>ПКМ</kbd> в лёд, <kbd>Shift</kbd>+<kbd>ПКМ</kbd> в ведро'
-      :'<b>Рез плашмя</b> по жёлтой плоскости, <kbd>колесо</kbd> меняет высоту. Проведите <kbd>ЛКМ</kbd> над куском. <kbd>X</kbd> рез поперёк, <kbd>F</kbd> перевернуть, <kbd>ПКМ</kbd> в лёд');
+    if(board.pieces.length)setHint('t-'+board.mode,{
+      v:'<b>Рез поперёк.</b> Зажмите <kbd>ЛКМ</kbd> и проведите нож через кусок от края до края. <kbd>X</kbd> следующий режим, <kbd>F</kbd> перевернуть, <kbd>G</kbd> достать потроха, <kbd>ПКМ</kbd> в лёд, <kbd>Shift</kbd>+<kbd>ПКМ</kbd> в ведро',
+      h:'<b>Рез плашмя</b> по жёлтой плоскости, <kbd>колесо</kbd> меняет высоту. Проведите <kbd>ЛКМ</kbd> над куском. <kbd>X</kbd> следующий режим, <kbd>F</kbd> перевернуть, <kbd>ПКМ</kbd> в лёд',
+      s:'<b>Снять кожу.</b> Водите плоскостью ножа по рыбе с зажатой <kbd>ЛКМ</kbd>, кожа сходит, под ней мясо. <kbd>X</kbd> следующий режим, <kbd>F</kbd> перевернуть, <kbd>ПКМ</kbd> в лёд'}[board.mode]);
     else setHint('t-empty',deckFish.length||board.loading?'Рыба ложится на доску…':'Стол пуст. <kbd>E</kbd> к борту'+(F.state==='hooked'?'. <b>Удочка гнётся в держателе!</b>':''));
     return;
   }
@@ -1712,6 +1800,6 @@ function frame(){
   renderer.render(scene,camera);
 }
 renderer.setAnimationLoop(frame);
-window.__game={THREE,F,board,deckFish,products,camera,fishRoot,boat,get storm(){return storm},set tripT(v){tripT=v},startTrip,endTrip,save,evalPiece,doSlice,toIce,sectionSegs,pointInsidePiece,clearBoard,step:n=>{stepDt=1/30;for(let i=0;i<n;i++)frame();stepDt=0;},
+window.__game={THREE,F,board,deckFish,products,camera,fishRoot,boat,get storm(){return storm},set tripT(v){tripT=v},startTrip,endTrip,save,evalPiece,doSlice,toIce,sectionSegs,pointInsidePiece,clearBoard,stripSkin,step:n=>{stepDt=1/30;for(let i=0;i<n;i++)frame();stepDt=0;},
   spawnDeck:(id,L)=>{const sp=SP[id];const len=L||lerp(sp.len[0],sp.len[1],.5);const rec=newFishRec(sp,len,Math.round(sp.k*len**3*100)/100);const pc=buildFishPiece(rec);boat.add(pc.g);pc.g.position.copy(DECK_SPOT);deckFish.push({rec,pc,flop:0});}};
 </script>
