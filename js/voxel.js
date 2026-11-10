@@ -2,7 +2,7 @@
    loose islands become separate objects, organs are their own small voxel bodies. */
 import { THREE, S, V, clamp, smooth, hash, TAU } from './core.js';
 
-export const M={E:0,SKIN:1,FLESH:2,BLOOD:3,BONE:4,HEAD:5,GILL:6,EYE:7,FIN:8,STOMACH:9,LIVER:10,GUT:11,ROE:12,GALL:13,LINING:14};
+export const M={E:0,SKIN:1,FLESH:2,BLOOD:3,BONE:4,HEAD:5,GILL:6,EYE:7,FIN:8,STOMACH:9,LIVER:10,GUT:11,ROE:12,GALL:13,LINING:14,RIB:15};
 const ORGAN_NAME={[M.STOMACH]:'Желудок',[M.LIVER]:'Печень',[M.GUT]:'Кишечник',[M.ROE]:'Икра',[M.GALL]:'Жёлчный пузырь'};
 export { ORGAN_NAME };
 
@@ -29,7 +29,7 @@ function skinCol(sp,xn,th,out){
   }
   return out;
 }
-const FIXED={[M.BONE]:0xebe2cb,[M.HEAD]:0xb06a55,[M.GILL]:0xc0303a,[M.EYE]:0x101010,[M.STOMACH]:0xc79c94,[M.LIVER]:0x7d3f28,[M.GUT]:0xdcbfa6,[M.ROE]:0xf08a3a,[M.GALL]:0x4f8a3a,[M.LINING]:0x8e9296};
+const FIXED={[M.BONE]:0xebe2cb,[M.RIB]:0xe2d6bc,[M.HEAD]:0xb06a55,[M.GILL]:0xc0303a,[M.EYE]:0x101010,[M.STOMACH]:0xc79c94,[M.LIVER]:0x7d3f28,[M.GUT]:0xdcbfa6,[M.ROE]:0xf08a3a,[M.GALL]:0x4f8a3a,[M.LINING]:0x8e9296};
 function matColor(o,m,lx,ly,lz,out){
   const f=o.fish,sp=f.sp,d=f.d;
   switch(m){
@@ -119,7 +119,7 @@ function ellipsoidObj(fish,mat,c,r,vs,organ){
 }
 export function buildFish(fish){
   const sp=fish.sp,d=fish.d,L=d.L;
-  const N=clamp(Math.round(L/.0068),46,100),vs=L/N;fish.vs=vs;
+  const N=clamp(Math.round(L/.0048),60,150),vs=L/N;fish.vs=vs;
   const tail=L*(sp.fam==='eel'?.06:.15),nose=L*.04;
   const finTop=sp.fam==='round'?d.H(.55)*(sp.spiny?1.95:1.6):d.hmax*1.02;
   const ymax=d.wmax*1.05;
@@ -152,7 +152,7 @@ export function buildFish(fish){
         if(xn>.03&&xn<sp.xh+.02&&Math.abs(p.y)<Math.max(vs*.9,.13*w)&&Math.abs(p.z-zs)<Math.max(vs*.9,.07*h))m=M.BONE;
         if(sp.fam!=='eel'&&m===M.FLESH&&xn>(sp.fam==='flat'?.25:.36)&&xn<(sp.fam==='flat'?.78:.72)){
           const ph=((p.x-d.X(.36))/ribStep)%1;const thick=vs/ribStep*1.05;
-          if((ph<thick||ph>1-1e-3)&&Math.abs(p.y)<.32*w&&(sp.fam==='flat'?Math.abs(p.z)<.8*h:(p.z<zs&&p.z>-.8*h)))m=M.BONE;
+          if((ph<thick||ph>1-1e-3)&&Math.abs(p.y)<.32*w&&(sp.fam==='flat'?Math.abs(p.z)<.8*h:(p.z<zs&&p.z>-.8*h)))m=M.RIB;
         }
         if(m===M.HEAD&&xn<sp.xh+.06&&Math.abs(p.y)>.5*w)m=M.GILL;
         for(const ep of eyeP)if(p.distanceTo(ep)<er)m=M.EYE;
@@ -169,7 +169,7 @@ export function buildFish(fish){
   // skin on the outside, lining against the cavity
   const out=ob.m.slice();
   for(let z=1;z<nz-1;z++)for(let y=1;y<ny-1;y++)for(let x=1;x<nx-1;x++){
-    const i=ob.idx(x,y,z),m=ob.m[i];if(!m||m===M.FIN||m===M.EYE)continue;
+    const i=ob.idx(x,y,z),m=ob.m[i];if(!m||m===M.FIN||m===M.EYE||m===M.RIB)continue;
     let air=false,cav=false;
     for(const [dx,dy,dz] of N6){const j=ob.idx(x+dx,y+dy,z+dz);if(!ob.m[j]){if(ob.cav[j])cav=true;else air=true;}}
     if(air)out[i]=M.SKIN;else if(cav&&(m===M.FLESH||m===M.BLOOD))out[i]=M.LINING;
@@ -231,6 +231,8 @@ export function carve(ob,tris,opts={}){
   if(res.removed&&!opts.dry){ob.count-=res.removed;ob.splitPending=true;}
   return res;
 }
+/* material at a world point */
+export function matAt(ob,pW){ob.g.updateMatrixWorld(true);_inv.copy(ob.g.matrixWorld).invert();const q=pW.clone().applyMatrix4(_inv).sub(ob.o).divideScalar(ob.vs).subScalar(.5);return ob.get(Math.round(q.x),Math.round(q.y),Math.round(q.z));}
 /* scrape skin: turn surface skin voxels near points into bare meat (remove the skin layer) */
 export function scrape(ob,ptsW,rad){
   ob.g.updateMatrixWorld(true);_inv.copy(ob.g.matrixWorld).invert();const vs=ob.vs,r=rad/vs,r2=r*r;let n=0;
@@ -280,11 +282,16 @@ export function split(ob){
   if(ob.organs.length&&made.length){
     const all=[ob,...made];
     for(const org of [...ob.organs]){
-      let best=ob,bd=1e9;for(const p of all){const d=distToSolid(p,org.anchor);if(d<bd){bd=d;best=p;}}
+      const c=V(org.o.x+org.nx*org.vs/2,org.o.y+org.ny*org.vs/2,org.o.z+org.nz*org.vs/2);let best=ob,bs=-1;for(const p of all){const sc=liningNear(p,c,7);if(sc>bs){bs=sc;best=p;}}
       if(best!==ob){ob.organs.splice(ob.organs.indexOf(org),1);best.organs.push(org);best.g.add(org.g);}
     }
   }
   return made;
+}
+function liningNear(ob,pLocal,R){
+  const q=pLocal.clone().sub(ob.o).divideScalar(ob.vs).subScalar(.5);let n=0;const cx=Math.round(q.x),cy=Math.round(q.y),cz=Math.round(q.z);
+  for(let z=cz-R;z<=cz+R;z++)for(let y=cy-R;y<=cy+R;y++)for(let x=cx-R;x<=cx+R;x++){const m=ob.get(x,y,z);if(m===M.LINING)n+=3;else if(m)n+=.01;}
+  return n;
 }
 function distToSolid(ob,pLocal){
   const q=pLocal.clone().sub(ob.o).divideScalar(ob.vs).subScalar(.5);let best=1e9;const R=6;
@@ -296,7 +303,7 @@ function distToSolid(ob,pLocal){
 export function stats(ob){
   const s={n:0,flesh:0,skin:0,bone:0,head:0,fin:0,organ:0,surface:0,byMat:{}};const {nx,ny,nz,m}=ob;
   for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const i=x+nx*(y+ny*z),mm=m[i];if(!mm)continue;s.n++;s.byMat[mm]=(s.byMat[mm]||0)+1;
-    if(mm===M.FLESH||mm===M.BLOOD||mm===M.LINING)s.flesh++;else if(mm===M.SKIN)s.skin++;else if(mm===M.BONE)s.bone++;else if(mm===M.HEAD||mm===M.GILL||mm===M.EYE)s.head++;else if(mm===M.FIN)s.fin++;else s.organ++;
+    if(mm===M.FLESH||mm===M.BLOOD||mm===M.LINING)s.flesh++;else if(mm===M.SKIN)s.skin++;else if(mm===M.BONE||mm===M.RIB)s.bone++;else if(mm===M.HEAD||mm===M.GILL||mm===M.EYE)s.head++;else if(mm===M.FIN)s.fin++;else s.organ++;
     if(mm===M.SKIN||!ob.get(x+1,y,z)||!ob.get(x-1,y,z)||!ob.get(x,y+1,z)||!ob.get(x,y-1,z)||!ob.get(x,y,z+1)||!ob.get(x,y,z-1))s.surface++;}
   return s;
 }

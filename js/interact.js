@@ -2,7 +2,7 @@
 import { THREE, S, V, UP, clamp, rand, damp, save, knifeMult, scene, camera, renderer, boat, TABLE, ICE, BUCKET, iceContent, bucketContent,
   HOLSTER, DECK_SPOT, fishRoot, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { CANNON, world, G_STATIC, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
-import { M, carve, scrape, split, evaluate, massOf } from './voxel.js';
+import { M, carve, scrape, split, evaluate, massOf, matAt } from './voxel.js';
 
 export const items=[];          // everything a hand can take: {type:'piece'|'tool', obj, body, com, vobj?, tool?, heldBy, ...}
 export const links=[];          // organs hanging from an opened fish
@@ -258,18 +258,22 @@ export function knifeSweep(edgePrev,edgeNow,opts){
   let total=0,bone=0,touched=[];
   for(const it of pieceItems()){
     const box=new THREE.Box3().setFromObject(it.obj);if(!box.intersectsBox(bb))continue;
-    const res=cutObj(it.vobj,tris,opts);if(res.removed){total+=res.removed;touched.push(it);}bone+=res.bone;
+    const res=cutObj(it.vobj,tris,{...opts,edge:edgeNow});if(res.removed){total+=res.removed;touched.push(it);}bone+=res.bone;
     for(const org of it.vobj.organs){const ob2=new THREE.Box3().setFromObject(org.g);if(ob2.intersectsBox(bb)){const r2=cutObj(org,tris,opts);total+=r2.removed;if(r2.removed&&!touched.includes(it))touched.push(it);}}
   }
   for(const it of touched)afterCut(it);
   return {removed:total,bone};
 }
 function cutObj(ob,tris,opts){
-  const kerf=opts.kerf??(.6+.3*(knifeMult()-1)*3);
+  // a narrow kerf: the blade takes only what its edge actually passes through
+  const kerf=opts.kerf??(.56+.1*(knifeMult()-1)*3);   // >0.5 voxel guarantees the cut really separates
+  // flat blade never touches the meat: it only peels the skin layer it slides over
   if(opts.flat){
-    // flat blade: if it only touches the surface, it peels skin; if it is driven into the meat, it cuts
-    const dry=carve(ob,tris,{kerf,dry:true});const deep=(dry.mats[M.FLESH]||0)+(dry.mats[M.BLOOD]||0)+(dry.mats[M.HEAD]||0);
-    if(deep<6)return carve(ob,tris,{kerf:kerf+.6,only:M.SKIN});
+    // flat blade: cut only where the edge itself sits in the meat; sliding over the surface peels just the skin
+    let inSolid=0,inMeat=0;
+    const E=opts.edge||[],dense=[];for(let i=0;i<E.length-1;i++)for(let k=0;k<4;k++)dense.push(E[i].clone().lerp(E[i+1],k/4));if(E.length)dense.push(E[E.length-1]);
+    for(const p of dense){const m=matAt(ob,p);if(!m)continue;inSolid++;if(m!==M.SKIN&&m!==M.FIN)inMeat++;}
+    if(inMeat<2||inMeat<inSolid*.5)return carve(ob,tris,{kerf:kerf+.55,only:M.SKIN});
   }
   const res=carve(ob,tris,{kerf,chop:opts.chop});
   if(res.removed){

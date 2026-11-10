@@ -120,7 +120,7 @@ function vrKnife(dt){
   if(prevEdge){
     const sp=now[now.length-1].distanceTo(prevEdge[prevEdge.length-1])/Math.max(dt,1e-3);
     if(sp>.02){
-      const nW=V(1,0,0).applyQuaternion(knife.getWorldQuaternion(new THREE.Quaternion()));const flat=Math.abs(nW.dot(UP))>.7;
+      const nW=V(1,0,0).applyQuaternion(knife.getWorldQuaternion(new THREE.Quaternion()));const flat=Math.abs(nW.dot(UP))>.8;
       const chop=sp>2.4||(save.knife>=2&&sp>1.4);
       const r=knifeSweep(prevEdge,now,{flat,chop});const who=h===mainHand()?'main':'off';
       if(r.removed){buzzHand(who,clamp(.15+r.removed/80,.15,.7),16);S.cutOnLine=!flat;}
@@ -198,24 +198,24 @@ function deskCutEnd(){
   const up=V(0,1,0),top=boardTopY();
   if(board.mode==='v'){
     const at=d.a.clone().setY(top+.35),ab=d.a.clone().setY(top-.004),bt=d.b.clone().setY(top+.35),bb=d.b.clone().setY(top-.004);
-    const r=knifeSweep([at,ab],[bt,bb],{chop:true,kerf:.75});if(r.removed)sfx.chop();
+    const r=knifeSweep([at,ab],[bt,bb],{chop:true,kerf:.55});if(r.removed)sfx.chop();
   }else if(board.mode==='h'){
     const perp=V(-seg.z,0,seg.x).normalize().multiplyScalar(.5);const y=top+board.hY;
     const a1=d.a.clone().setY(y).sub(perp),a2=d.a.clone().setY(y).add(perp),b1=d.b.clone().setY(y).sub(perp),b2=d.b.clone().setY(y).add(perp);
-    const r=knifeSweep([a1,a2],[b1,b2],{chop:false,kerf:.75});if(r.bone)sfx.bone();
+    const r=knifeSweep([a1,a2],[b1,b2],{chop:false,kerf:.55});if(r.bone)sfx.bone();
   }else if(board.mode==='slit'){
     // a shallow cut exactly along the fish surface under the cursor path
     const meshes=pieceMeshes();const pts=[];const N=Math.max(10,Math.ceil(d.na.distanceTo(d.nb)/.01));const nd=new THREE.Vector2();
     for(let i=0;i<=N;i++){nd.lerpVectors(d.na,d.nb,i/N);raycaster.setFromCamera(nd,camera);const h=raycaster.intersectObjects(meshes,false)[0];pts.push(h?h.point.clone():null);}
     const dir=raycaster.ray.direction.clone();
     for(let i=0;i<N;i++){const p0=pts[i],p1=pts[i+1];if(!p0||!p1||p0.distanceTo(p1)>.05)continue;
-      knifeSweep([p0.clone().addScaledVector(dir,-.01),p0.clone().addScaledVector(dir,.045)],[p1.clone().addScaledVector(dir,-.01),p1.clone().addScaledVector(dir,.045)],{chop:false,kerf:.75});}
+      knifeSweep([p0.clone().addScaledVector(dir,-.01),p0.clone().addScaledVector(dir,.045)],[p1.clone().addScaledVector(dir,-.01),p1.clone().addScaledVector(dir,.045)],{chop:false,kerf:.55});}
   }
 }
 function deskSkin(){
   if(S.view!=='table'||board.mode!=='s'||!ptr.down||mouse.it)return;
   const h=hitUnderCursor();if(!h)return;const it=h.object.userData.it;
-  if(scrape(it.vobj,[h.point],it.vobj.vs*1.9)){markCut(it);S.cutSound=.6;}
+  if(scrape(it.vobj,[h.point],.012)){markCut(it);S.cutSound=.6;}
 }
 function pieceAction(where){const h=hitUnderCursor();if(!h)return;const it=h.object.userData.it;if(where==='bucket')toBucket(it);else toIce(it);}
 function pullOrgansDesk(){
