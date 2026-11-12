@@ -358,10 +358,12 @@ function updateHeldLures(){
 }
 
 /* ---------- cast assist ---------- */
+// the way the cast goes: where the rod points, flat on the water
+function castForward(){const a=rod.root.getWorldPosition(V()),t=tipW(V());const f=t.sub(a);f.y=0;if(f.lengthSq()<1e-4)f.set(0,0,-1);return f.normalize();}
 function bestSwing(){
   const B=F.castBuf;if(!B||!B.length)return null;
   // only the forward part of the swing counts: samples moving the way the rod moves at release (or now)
-  const ref=(F.releasing&&F.releasing.dir.lengthSq()>.5?F.releasing.dir:tipVelS).clone().normalize();
+  const ref=castForward();
   const ok=i=>B[i].v.dot(ref)>0&&S.T-B[i].t<=.25;
   let bi=-1;for(let i=0;i<B.length;i++)if(ok(i)&&(bi<0||B[i].v.length()>B[bi].v.length()))bi=i;if(bi<0)bi=B.length-1;
   const v=V();let n=0;for(let i=Math.max(0,bi-2);i<=Math.min(B.length-1,bi+2);i++){if(B[i].v.dot(ref)<=0)continue;v.add(B[i].v);n++;}if(n)v.divideScalar(n);else v.copy(B[bi].v);
@@ -468,8 +470,9 @@ export function fishingVR(dt){
       if(!trig&&!F.releasing)F.releasing={t:0,last:sp,dir:tipVelS.clone()};
       if(F.releasing){
         // let go a moment too early: wait (a little) for the rod to reach its fastest point
-        const rel=F.releasing;const rising=rel.t===0||sp>rel.last*1.01;rel.last=sp;rel.t+=dt;
-        if(!(save.castAssist>0&&rising&&rel.t<.12)){
+        const rel=F.releasing;const fw=castForward();const fwd=tipVelS.dot(fw);
+        const rising=rel.t===0||fwd<=1||fwd>rel.last*1.01;rel.last=Math.max(fwd,0);rel.t+=dt;
+        if(!(save.castAssist>0&&rising&&rel.t<.15)){
           const best=bestSwing();
           if(best&&best.v.length()>1.2){const vv=castVector(true);launchLure(null,0,vv);hapPulse(rodHand(),.3,30);
             if(save.castAssist>0){const late=S.T-best.t;msg(rel.t>.06?'Чуть рано':late>.08?'Чуть поздно':'Отличный заброс','',.9);}}
