@@ -438,7 +438,7 @@ function startTrip(){
   S.products.length=0;clearGroup(iceContent);clearGroup(bucketContent);board.loading=false;
   nineWave={warned:false,t:0,hit:false,endT:-1};
   if(renderer.xr.isPresenting){for(const t of [rodItem,netItem,knifeItem,scalerItem])if(!t.heldBy)toHolster(t);rodItem.desk=false;}
-  else{rodToDesk();if(knifeItem.desk){knifeItem.desk=false;toHolster(knifeItem);}if(!netItem.heldBy)toHolster(netItem);}
+  else{rodToDesk();if(knifeItem.desk){knifeItem.desk=false;toHolster(knifeItem);}for(const t of [knifeItem,scalerItem,netItem])if(!t.heldBy&&!t.desk)toHolster(t);}
   ui.bView.textContent='К столу · E';save.trips++;persist();
   msg('Отдать швартовы!','Тихая вода. Над косяком кружат чайки',2.6);resetHint();
 }
