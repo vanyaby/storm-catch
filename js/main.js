@@ -3,7 +3,7 @@ import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, damp, fmtKg, save, per
   renderer, scene, camera, rig, boat, TABLE, ICE, fishRoot, hPlane, PLAYER, DECK_SPOT, HOLSTER, Mat, ui, msg, setHint, resetHint, tickMsg, vrMsg,
   sfx, audioInit, audioUpdate, AU, splash, label, updateParts, updateFloaters, updateBirds, updateEnv, updateAnims, clearAnims, fly, iceContent, bucketContent } from './core.js';
 import { CANNON, world } from './physics.js';
-import { M, newFish, buildFish, scrape, descale } from './voxel.js';
+import { M, newFish, buildFish, scrape, descale, sampler } from './voxel.js';
 import { items, pieceItems, addPiece, removeItem, registerTool, toHolster, HANDS, mainHand, offHand, updateHand, syncItems, updateLinks,
   collect, processSplits, knifeSweep, markCut, releaseOrgan, toIce, toBucket, onTable, boatPos, mouse, mouseGrab, mouseRelease, updateMouseGrab, links, edgeMats, handMatrixBoat } from './interact.js';
 import { hapPulse, hapCont, hapBoth, hapFlush, hapLog } from './haptics.js';
@@ -11,13 +11,19 @@ import { F, rod, rodItem, net, netItem, setCrankSide, setLureModel, tieLure, rod
   fishingVR, updateFishing, updateRodLine, tryHook, liftOrNet, resetFishing, crank, forceHook } from './fishing.js';
 
 /* ---------- knife ---------- */
+const bevelMat=Mat(0xf2f5f8,{metalness:1,roughness:.12});
 function buildKnife(){
   const g=new THREE.Group();
   const h=new THREE.Mesh(new THREE.BoxGeometry(.024,.026,.12),Mat(0x5a3a22));h.position.z=.065;g.add(h);
   for(const z of [.03,.1]){const r=new THREE.Mesh(new THREE.CylinderGeometry(.004,.004,.026,5),Mat(0xc9c9c9,{metalness:.8}));r.rotation.z=Math.PI/2;r.position.set(0,0,z);g.add(r);}
   const s=new THREE.Shape();s.moveTo(0,.011);s.lineTo(.19,.006);s.lineTo(.235,-.006);s.lineTo(.2,-.02);s.lineTo(0,-.022);s.lineTo(0,.011);
   const bg=new THREE.ExtrudeGeometry(s,{depth:.0025,bevelEnabled:false});bg.rotateY(Math.PI/2);bg.translate(-.0012,0,0);
-  g.add(new THREE.Mesh(bg,Mat(0xd8dde0,{metalness:.85,roughness:.22})));return g;
+  g.add(new THREE.Mesh(bg,Mat(0xaeb4b8,{metalness:.8,roughness:.3})));
+  // the cutting side is the bottom edge: a bright ground bevel. the spine on top is thick and dark.
+  const bevel=new THREE.Mesh(new THREE.BoxGeometry(.0034,.0052,.205),bevelMat);bevel.position.set(0,-.0192,-.1);g.add(bevel);
+  const bev2=new THREE.Mesh(new THREE.BoxGeometry(.0038,.0016,.03),bevelMat);bev2.position.set(0,-.016,-.212);bev2.rotation.x=.7;g.add(bev2);
+  const spine=new THREE.Mesh(new THREE.BoxGeometry(.0058,.0042,.2),Mat(0x30363a,{metalness:.5,roughness:.55}));spine.position.set(0,.0095,-.1);g.add(spine);
+  return g;
 }
 const knife=buildKnife();
 const knifeItem=registerTool('knife',knife,b=>b.addShape(new CANNON.Box(new CANNON.Vec3(.013,.02,.13)),new CANNON.Vec3(0,0,-.05)),.25,HOLSTER.knife,V(0,0,0),new THREE.Quaternion());
@@ -38,6 +44,7 @@ const STONE=V(TABLE.x-.3,TABLE.top+.012,TABLE.z-.62);
 {const st=new THREE.Mesh(new THREE.BoxGeometry(.06,.024,.18),Mat(0x6b6f74,{roughness:1}));st.position.copy(STONE);boat.add(st);
  const base=new THREE.Mesh(new THREE.BoxGeometry(.08,.012,.2),Mat(0x5a3a22));base.position.copy(STONE).add(V(0,-.016,0));boat.add(base);}
 S.sharp=1;
+const _stoneUnused=0;
 
 /* ---------- state ---------- */
 const board={mode:'v',hY:.05,loading:false};
@@ -143,50 +150,127 @@ function vrButtons(dt){
     if(b){h.bHeld=(h.bHeld||0)+dt;if(h.bHeld>1.5){h.bHeld=-99;endTrip('home');}}else h.bHeld=0;}
 }
 /* knife cutting in VR */
-let prevEdge=null,kPrevT=null;
+/* ---- the knife as a physical object: a spring from the hand, thresholds per material, one cutting edge ---- */
+const KN={pos:V(),init:false,vel:V(),prevHand:V(),state:'free',blockT:0,saw:0,sawSign:0,boneOK:0,prevEdge:null,tick:0};
+const K_SPRING=130;                       // N per metre of lag between hand and blade
+const TH={[M.SKIN]:1.0,[M.SKIN2]:.8,[M.FLESH]:.45,[M.BLOOD]:.45,[M.LINING]:.5,[M.RIB]:2.4,[M.HEAD]:2.8,[M.GILL]:1.4,[M.EYE]:.8,[M.FIN]:.2,
+  [M.BONE]:14,[M.STOMACH]:.25,[M.LIVER]:.3,[M.GUT]:.25,[M.ROE]:.2,[M.GALL]:.2};
+const BODY_LOCAL=[];for(const z of [-.03,-.075,-.12,-.165,-.205])BODY_LOCAL.push(V(0,.004,z),V(0,-.008,z));
+const _rq=new THREE.Quaternion(),_inv=new THREE.Quaternion();
 const _km=new THREE.Matrix4(),_kp=V(),_kq=new THREE.Quaternion(),_ks=V();
+const KNIFE_FACE=[];for(const y of [-.018,-.006,.006])for(const z of [-.03,-.07,-.11,-.15,-.19])KNIFE_FACE.push(V(0,y,z));
+function knifeFace(){return KNIFE_FACE.map(p=>knife.localToWorld(p.clone()));}
+function kneeNear(pos){const out=[];const bb=new THREE.Box3().setFromCenterAndSize(boat.localToWorld(pos.clone()),V(.9,.9,.9));
+  for(const it of pieceItems()){const box=new THREE.Box3().setFromObject(it.obj);if(!box.intersectsBox(bb))continue;
+    out.push({it,s:sampler(it.vobj),o:it.vobj.organs.map(o=>sampler(o))});}return out;}
+const solidAt=(near,w)=>{for(const n of near){let m=n.s(w);if(m)return m;for(const so of n.o){m=so(w);if(m)return m;}}return 0;};
+function evalPose(near,pos,RE,RB){
+  const r={e:0,b:0,th:0,bone:false,mm:{}};const off=boat.position;const w=V();
+  for(const p of RE){w.copy(p).add(pos);w.applyMatrix4(boat.matrixWorld);const m=solidAt(near,w);if(m){r.e++;r.th=Math.max(r.th,TH[m]||1);if(m===M.BONE)r.bone=true;r.mm[m]=(r.mm[m]||0)+1;}}
+  for(const p of RB){w.copy(p).add(pos);w.applyMatrix4(boat.matrixWorld);if(solidAt(near,w))r.b++;}
+  return r;
+}
 function vrKnife(dt){
-  const h=knifeItem.heldBy;if(!h){prevEdge=null;kPrevT=null;return;}
-  const who=h===mainHand()?'main':'off';
+  const h=knifeItem.heldBy;
+  if(!h){KN.init=false;KN.prevEdge=null;return;}
   handMatrixBoat(h,_km).decompose(_kp,_kq,_ks);
-  const handSp=kPrevT?_kp.distanceTo(kPrevT)/Math.max(dt,1e-3):0;(kPrevT=kPrevT||V()).copy(_kp);
-  knife.quaternion.copy(_kq);knife.updateMatrixWorld(true);
-  // what is the blade sitting in? meat slows it, bone stops it unless you strike
-  const cur=KN_EDGE.map(p=>knife.localToWorld(p.clone()));const r0=edgeMats(cur);
-  const chop=handSp>2.2||(save.knife>=2&&handSp>1.4);
+  if(!KN.init){KN.pos.copy(_kp);KN.prevHand.copy(_kp);KN.vel.set(0,0,0);KN.init=true;KN.prevEdge=null;KN.state='free';}
+  // hand velocity (smoothed) and the push intent: where the hand is going plus where it is pulling the blade
+  const hv=_kp.clone().sub(KN.prevHand).divideScalar(Math.max(dt,1e-3));KN.prevHand.copy(_kp);KN.vel.lerp(hv,.5);
+  const handSp=KN.vel.length();
+  knife.quaternion.copy(_kq);
+  const d=_kp.clone().sub(KN.pos);const lag=d.length();
+  _inv.copy(_kq).invert();const dl=d.clone().applyQuaternion(_inv);
+  const intent=KN.vel.clone().addScaledVector(d,7).applyQuaternion(_inv);   // in blade coordinates: -Y is toward the edge, Z along the blade
+  // the cutting side only: pushing toward the edge, or drawing along the blade. spine first or sideways does not cut.
+  const drive=Math.max(0,-intent.y)+.55*Math.abs(intent.z);const lateral=Math.abs(intent.x);
+  const cutting=drive>.05&&lateral<drive*1.6+.03;
+  const sharpScale=(1.8-.8*S.sharp)/knifeMult();
+  const strike=handSp>1.0?26*(handSp-1.0):0;                     // a fast blow adds an impulse
+  const Feff=K_SPRING*lag+strike;
+  KN.boneOK=Math.max(0,KN.boneOK-dt);
+  // rotated sample points (blade coordinates -> boat-local offsets)
+  const RE=KN_EDGE.map(p=>p.clone().applyQuaternion(_kq)),RB=BODY_LOCAL.map(p=>p.clone().applyQuaternion(_kq));
+  const near=kneeNear(KN.pos);
+  let state='free',cutMat=0,removedTotal=0,rib=0,organs=0,boneCut=false;
+  if(!near.length){KN.pos.copy(_kp);}
+  else{
+    let cur=evalPose(near,KN.pos,RE,RB);
+    let budget=lag;let guard=0;const dir=d.clone().normalize();
+    // inside material the blade advances only as fast as the force allows; outside it is free
+    while(budget>1e-4&&guard++<7){
+      const sub=Math.min(budget,.006);const cand=KN.pos.clone().addScaledVector(dir,sub);const ev=evalPose(near,cand,RE,RB);
+      if(ev.b>cur.b){state='body';break;}                                    // the flat or spine meets the fish: it stops (and pushes the fish)
+      let limit=6*dt;
+      if(ev.e>cur.e){
+        const th=ev.th*sharpScale;
+        if(!cutting){state='blunt';break;}
+        if(ev.bone&&!(Feff>=ev.th*sharpScale||KN.boneOK>0)){state='bone';break;}
+        if(Feff<th){state='force';break;}
+        limit=clamp((Feff-th)*.4+.18,.18,3)*dt;
+        if(ev.bone&&KN.boneOK<=0){KN.boneOK=.3;}
+      }else if(ev.e>0){limit=clamp((Feff-cur.th*sharpScale)*.4+.25,.25,3)*dt;}
+      const prevE=KN_EDGE.map(p=>p.clone().applyQuaternion(_kq).add(KN.pos));const nowE=KN_EDGE.map(p=>p.clone().applyQuaternion(_kq).add(cand));
+      const pw=prevE.map(p=>boat.localToWorld(p)),nw=nowE.map(p=>boat.localToWorld(p));
+      if(ev.e>0||cur.e>0){
+        const r=knifeSweep(pw,nw,{flat:false,chop:KN.boneOK>0||strike>10});
+        removedTotal+=r.removed;rib+=r.mats[M.RIB]||0;for(const k of [M.STOMACH,M.LIVER,M.GUT,M.ROE,M.GALL])organs+=r.mats[k]||0;if(r.bone>0)boneCut=true;
+        for(const k in ev.mm)if(!cutMat||ev.mm[k]>(ev.mm[cutMat]||0))cutMat=+k;
+      }
+      KN.pos.copy(cand);cur=ev;budget-=sub;
+      if(sub>limit&&ev.e>0){break;}                                           // slowed down by the material
+    }
+    if(budget<=1e-4)state=state==='free'?(cur.e>0?'cut':'free'):state;
+    else if(state==='free')state=cur.e>0?'cut':'free';
+    // blocked by a solid: lean on the fish (it gets pushed a little)
+    if(state==='body'){const it=near[0].it;if(it.body&&!it.heldBy){const f=V().copy(dir).multiplyScalar(Math.min(20,Feff*.5));it.body.applyForce(new CANNON.Vec3(f.x,f.y,f.z),it.body.position);}}
+  }
+  // the board: the blade cannot go through the table top
+  {let lowest=1e9;for(const p of RE){const y=p.y+KN.pos.y;if(y<lowest)lowest=y;}
+   const lx=KN.pos.x-TABLE.x,lz=KN.pos.z-TABLE.z;
+   if(Math.abs(lx)<.3&&Math.abs(lz)<.66&&lowest<TABLE.top+.003){const hit=KN.vel.y<-.4&&!KN.tableHit;KN.pos.y+=TABLE.top+.003-lowest;if(hit){hapPulse(h,.5,15);sfx.tap(.4);}KN.tableHit=KN.vel.y<-.4;}else KN.tableHit=false;
+   if(lowest<.012&&!(Math.abs(lx)<.3&&Math.abs(lz)<.66)){KN.pos.y+=.012-lowest;}}
+  knife.position.copy(KN.pos);knife.updateMatrixWorld(true);
   // sharpening: the blade drawn over the stone
   const midW=knife.localToWorld(V(0,-.02,-.12));const sl=boat.worldToLocal(midW.clone());
   if(Math.abs(sl.x-STONE.x)<.05&&Math.abs(sl.z-STONE.z)<.11&&Math.abs(sl.y-STONE.y)<.035&&handSp>.15){
     const was=S.sharp;S.sharp=Math.min(1,S.sharp+dt*.35);h.st=(h.st||0)-dt;if(h.st<=0){h.st=.12;sfx.sharpen();hapPulse(h,.3,40);splash(midW,2,.6,.08);}
-    if(was<1&&S.sharp>=1)msg('Нож наточен','',1);}
-  const d=_kp.clone().sub(knife.position);const lag=d.length();
-  let vmax=1e9;
-  if(r0.n&&!chop){
-    if(r0.bone)vmax=.06;
-    else{const f=Math.min(1,r0.n/cur.length*2.5);let base=(r0.hard>r0.soft?.3:.5)*knifeMult()*(.35+.65*S.sharp);
-      // along the fish (with the grain) the blade glides, across it drags
-      if(r0.it&&handSp>.05){const ax=V(1,0,0).applyQuaternion(r0.it.obj.getWorldQuaternion(new THREE.Quaternion()));const mv=d.clone().normalize();base*=lerp(.8,1.35,Math.abs(ax.dot(mv)));}
-      vmax=lerp(2.5,base,f)*(1+lag*10);}
+    hapCont(h,.2);if(was<1&&S.sharp>=1)msg('Нож наточен','',1);}
+  // flat blade sliding over the skin: it scrapes the skin layer off, it does not cut
+  const nW=V(1,0,0).applyQuaternion(knife.getWorldQuaternion(new THREE.Quaternion()));
+  if(Math.abs(nW.dot(UP))>.8&&handSp>.06&&state!=='cut'){
+    const fp=knifeFace();let peeled=0;
+    for(const n of near){if(n.it.vobj.kind!=='fish')continue;const k=scrape(n.it.vobj,fp,.012);if(k){peeled+=k;n.it.vobj.flushMeshes();markCut(n.it);}}
+    if(peeled){hapCont(h,.14);KN.tick-=dt;if(KN.tick<=0){KN.tick=.05;hapPulse(h,.22,12);}S.cutSound=.6;}
   }
-  if(lag>.3){knife.position.copy(_kp);knife.updateMatrixWorld(true);prevEdge=null;return;}     // pulled free, no cut
-  const stepMax=vmax*dt;if(lag>stepMax)knife.position.addScaledVector(d,stepMax/lag);else knife.position.copy(_kp);
-  knife.updateMatrixWorld(true);
-  if(r0.n&&lag>.004){h.kt=(h.kt||0)-dt;if(h.kt<=0){h.kt=.045;hapPulse(h,clamp(.18+lag*5+(r0.bone?.35:0)+(r0.hard?.1:0),0,1),45);}}
-  const now=KN_EDGE.map(p=>knife.localToWorld(p.clone()));
-  if(prevEdge){
-    const sp=now[now.length-1].distanceTo(prevEdge[prevEdge.length-1])/Math.max(dt,1e-3);
-    if(sp>.02){
-      const nW=V(1,0,0).applyQuaternion(knife.getWorldQuaternion(new THREE.Quaternion()));const flat=Math.abs(nW.dot(UP))>.8;
-      const r=knifeSweep(prevEdge,now,{flat,chop});
-      if(r.removed)S.cutOnLine=!flat;
-      if(r.bone>2&&!chop&&handSp>.25){sfx.bone();}
-      if(chop&&r.removed>20){sfx.crunch();hapPulse(h,1,70);}
-      if(r.removed)S.sharp=Math.max(.2,S.sharp-r.removed*2.5e-6-(chop?.004:0));
-      if(S.sharp<.45&&!S.dullWarned){S.dullWarned=true;msg('Нож затупился','Проведите лезвием по точилу на столе',2);}
-      if(S.sharp>.8)S.dullWarned=false;
+  // ---- what the hand feels ----
+  const press=clamp(lag/.12,0,1);
+  if(state==='bone'||state==='force'||state==='blunt'||state==='body'){
+    hapCont(h,.06+.05*press);                                                 // faint, long: it will not go
+    if(KN.state!==state){hapPulse(h,state==='bone'?.65:.45,state==='bone'?22:15);if(state==='bone')sfx.bone();else sfx.tap(.35);}
+    if(state==='bone'){
+      // sawing: draw the blade back and forth along its length while pressing
+      const vz=intent.z;const sgn=Math.abs(vz)>.12?Math.sign(vz):0;
+      if(sgn&&sgn!==KN.sawSign){if(KN.sawSign){hapPulse(h,.45,25);sfx.bone();}KN.sawSign=sgn;}
+      if(sgn&&press>.15){KN.saw+=Math.abs(vz)*dt*(1+5*press);}
+      if(KN.saw>1.1){KN.saw=0;KN.boneOK=.5;hapPulse(h,.7,40);}
     }
+  }else{KN.saw=Math.max(0,KN.saw-dt*.5);if(state!=='cut')KN.sawSign=0;}
+  if(state==='cut'||removedTotal>0){
+    const speed=clamp(handSp/1.5,0,1);
+    if(cutMat===M.SKIN||cutMat===M.SKIN2){if(KN.state!=='cut'){hapPulse(h,.55,20);}hapCont(h,.1+.15*speed);}      // the skin gives way with a click
+    else if(cutMat===M.RIB||cutMat===M.HEAD||cutMat===M.GILL){hapCont(h,.18+.2*speed);}
+    else hapCont(h,.1+.2*speed);                                                                                   // soft low hum in meat
+    if(rib>0){hapPulse(h,.5,15);sfx.bone();}
+    if(organs>0){hapPulse(h,.3,40);sfx.squelch();}
+    if(boneCut){hapPulse(h,1,90);sfx.crunch();}
+    if(removedTotal){S.cutOnLine=true;S.sharp=Math.max(.2,S.sharp-removedTotal*2.5e-6-(boneCut?.004:0));S.cutSound=1;}
+    if(S.sharp<.45&&!S.dullWarned){S.dullWarned=true;msg('Нож затупился','Проведите лезвием по точилу на столе',2);}
+    if(S.sharp>.8)S.dullWarned=false;
   }
-  prevEdge=now;
+  KN.state=state==='free'&&removedTotal>0?'cut':state;
+  // the bevel dulls and shines with sharpness
+  bevelMat.roughness=.12+.5*(1-S.sharp);bevelMat.color.setHSL(.58,.06*(1-S.sharp),.62+.34*S.sharp);
 }
 /* scaler: rub it over the skin, scales fly off */
 let scPrev=null;

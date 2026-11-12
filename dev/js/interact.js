@@ -3,7 +3,7 @@ import { THREE, S, V, UP, clamp, rand, damp, save, knifeMult, scene, camera, ren
   HOLSTER, DECK_SPOT, fishRoot, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { hapPulse, hapCont, hapBoth, bindHands } from './haptics.js';
 import { CANNON, world, G_STATIC, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
-import { M, carve, scrape, split, evaluate, massOf, matAt } from './voxel.js';
+import { M, carve, scrape, split, evaluate, massOf, matAt, sampler } from './voxel.js';
 const SKINS=[M.SKIN,M.SKIN2];
 
 export const items=[];          // everything a hand can take: {type:'piece'|'tool', obj, body, com, vobj?, tool?, heldBy, ...}
@@ -263,20 +263,21 @@ export function edgeMats(pts){
     for(const p of pts){const m=matAt(it.vobj,p);if(!m)continue;r.n++;if(!r.it)r.it=it;if(m===M.BONE)r.bone++;else if(m===M.HEAD||m===M.GILL||m===M.RIB)r.hard++;else r.soft++;}}
   return r;
 }
+export { sampler };
 export function snapToHand(it,hpW){const pl=boat.worldToLocal(hpW.clone());it.obj.position.copy(pl).sub(it.com.clone().applyQuaternion(it.obj.quaternion));it.body.position.set(pl.x,pl.y,pl.z);it.body.velocity.setZero();}
 /* ---------- cutting ---------- */
 /* edge0/edge1: arrays of world points along the blade now and a moment ago */
 export function knifeSweep(edgePrev,edgeNow,opts){
   const tris=[];for(let i=0;i<edgeNow.length-1;i++){const a0=edgePrev[i],b0=edgePrev[i+1],a1=edgeNow[i],b1=edgeNow[i+1];tris.push([a0,b0,b1],[a0,b1,a1]);}
   const bb=new THREE.Box3();for(const p of edgePrev)bb.expandByPoint(p);for(const p of edgeNow)bb.expandByPoint(p);bb.expandByScalar(.02);
-  let total=0,bone=0,touched=[];
+  let total=0,bone=0,touched=[];const mats={};const addM=r=>{for(const k in r.mats)mats[k]=(mats[k]||0)+r.mats[k];};
   for(const it of pieceItems()){
     const box=new THREE.Box3().setFromObject(it.obj);if(!box.intersectsBox(bb))continue;
-    const res=cutObj(it.vobj,tris,{...opts,edge:edgeNow});if(res.removed){total+=res.removed;touched.push(it);}bone+=res.bone;
-    for(const org of it.vobj.organs){const ob2=new THREE.Box3().setFromObject(org.g);if(ob2.intersectsBox(bb)){const r2=cutObj(org,tris,opts);total+=r2.removed;if(r2.removed&&!touched.includes(it))touched.push(it);}}
+    const res=cutObj(it.vobj,tris,{...opts,edge:edgeNow});if(res.removed){total+=res.removed;touched.push(it);}bone+=res.bone;addM(res);
+    for(const org of it.vobj.organs){const ob2=new THREE.Box3().setFromObject(org.g);if(ob2.intersectsBox(bb)){const r2=cutObj(org,tris,opts);addM(r2);total+=r2.removed;if(r2.removed&&!touched.includes(it))touched.push(it);}}
   }
   for(const it of touched)afterCut(it);
-  return {removed:total,bone};
+  return {removed:total,bone,mats};
 }
 function cutObj(ob,tris,opts){
   // a narrow kerf: the blade takes only what its edge actually passes through

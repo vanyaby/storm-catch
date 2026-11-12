@@ -318,16 +318,17 @@ function updateCrank(dt){
   if(crank.acc>Math.PI/4){crank.acc=0;sfx.click(.07+load*.08);hapPulse(h,.15+load*.45,10+load*25);}
   if(fight&&load>.97&&Math.random()<dt*20)hapPulse(h,.6,15);
 }
-function takeLure(h,id){const m=lureModel(LU[id]);m.name='heldLure';h.grip.add(m);m.position.set(0,-.02,-.05);h.heldLure=id;sfx.pick();hapPulse(h,.3,25);}
+function takeLure(h,id){h.lureFree=true;const m=lureModel(LU[id]);m.name='heldLure';h.grip.add(m);m.position.set(0,-.02,-.05);h.heldLure=id;sfx.pick();hapPulse(h,.3,25);}
 function updateHeldLures(){
   // a lure held on the line: trigger = unclip (click), letting go = it hangs again
   if(F.lureHold){const h=F.lureHold;const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const trig=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6);
     if(!sq||F.state!=='ready'){F.lureHold=null;}
-    else if(trig&&!h.lureTrigPrev){F.hasLure=false;const id=F.lureId;setLureModel(null);F.lureHold=null;takeLure(h,id);sfx.tie();hapPulse(h,.7,45);msg('Приманка отстёгнута','Поднесите любую к карабину, чтобы пристегнуть',1.8);}
+    else if(trig&&!h.lureTrigPrev){F.hasLure=false;const id=F.lureId;setLureModel(null);F.lureHold=null;takeLure(h,id);h.lureFree=false;sfx.tie();hapPulse(h,.7,45);msg('Приманка отстёгнута','Поднесите любую к карабину, чтобы пристегнуть',1.8);}
     h.lureTrigPrev=trig;}
   for(const h of Object.values(HANDS)){if(!h||!h.heldLure)continue;const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const hp=h.grip.getWorldPosition(V());
     const sp=rope.p[ROPE_N-1];
-    if(F.state==='ready'&&!F.hasLure&&hp.distanceTo(sp)<.09){tieLure(h.heldLure);hapPulse(h,.7,40);const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;continue;}
+    if(hp.distanceTo(sp)>.16)h.lureFree=true;      // must be carried away from the carabiner before it can clip back
+    if(F.state==='ready'&&!F.hasLure&&h.lureFree&&hp.distanceTo(sp)<.09){tieLure(h.heldLure);hapPulse(h,.7,40);const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;continue;}
     if(!sq){const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;}}
 }
 
@@ -370,7 +371,7 @@ function updateRope(dt){
     const vx=(p.x-o.x)*(inW?.55:.985),vy=(p.y-o.y)*(inW?.55:.985),vz=(p.z-o.z)*(inW?.55:.985);o.copy(p);p.x+=vx;p.y+=vy+(inW?g*.15:g);p.z+=vz;
     if(F.state==='flying'&&!inW){p.addScaledVector(wind,S.storm*.3*dt*dt*40);} }
   rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);
-  for(let it=0;it<12;it++){
+  for(let it=0;it<(hang?30:12);it++){
     for(let i=0;i<ROPE_N-1;i++){const a=rope.p[i],b=rope.p[i+1];_v1.subVectors(b,a);const l=_v1.length()||1e-6;const diff=(l-seg)/l;
       if(i===0)b.addScaledVector(_v1,-diff);else if(i+1===ROPE_N-1&&!hang)a.addScaledVector(_v1,diff);else{a.addScaledVector(_v1,diff*.5);b.addScaledVector(_v1,-diff*.5);}}
     rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);

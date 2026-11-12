@@ -233,6 +233,11 @@ export function carve(ob,tris,opts={}){
   if(res.removed&&!opts.dry){ob.count-=res.removed;ob.splitPending=true;}
   return res;
 }
+/* fast sampler: material at a world point, with the inverse matrix computed once */
+export function sampler(ob){
+  ob.g.updateMatrixWorld(true);const inv=ob.g.matrixWorld.clone().invert();const vs=ob.vs,o=ob.o,q=new THREE.Vector3();
+  return pW=>{q.copy(pW).applyMatrix4(inv).sub(o).divideScalar(vs).subScalar(.5);return ob.get(Math.round(q.x),Math.round(q.y),Math.round(q.z));};
+}
 /* material at a world point */
 export function matAt(ob,pW){ob.g.updateMatrixWorld(true);_inv.copy(ob.g.matrixWorld).invert();const q=pW.clone().applyMatrix4(_inv).sub(ob.o).divideScalar(ob.vs).subScalar(.5);return ob.get(Math.round(q.x),Math.round(q.y),Math.round(q.z));}
 /* scrape skin: turn surface skin voxels near points into bare meat (remove the skin layer) */
