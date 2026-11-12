@@ -1,8 +1,8 @@
 /* Voxel fish: a 3D grid of materials. The knife removes voxels it sweeps through,
    loose islands become separate objects, organs are their own small voxel bodies. */
-import { THREE, S, V, clamp, smooth, hash, TAU } from './core.js';
+import { THREE, S, V, clamp, smooth, hash, TAU, save } from './core.js';
 
-export const M={E:0,SKIN:1,FLESH:2,BLOOD:3,BONE:4,HEAD:5,GILL:6,EYE:7,FIN:8,STOMACH:9,LIVER:10,GUT:11,ROE:12,GALL:13,LINING:14,RIB:15};
+export const M={E:0,SKIN:1,FLESH:2,BLOOD:3,BONE:4,HEAD:5,GILL:6,EYE:7,FIN:8,STOMACH:9,LIVER:10,GUT:11,ROE:12,GALL:13,LINING:14,RIB:15,SKIN2:16};
 const ORGAN_NAME={[M.STOMACH]:'Желудок',[M.LIVER]:'Печень',[M.GUT]:'Кишечник',[M.ROE]:'Икра',[M.GALL]:'Жёлчный пузырь'};
 export { ORGAN_NAME };
 
@@ -34,6 +34,7 @@ function matColor(o,m,lx,ly,lz,out){
   const f=o.fish,sp=f.sp,d=f.d;
   switch(m){
     case M.SKIN:{const xn=clamp(lx/d.L+.5,0,1);const w=Math.max(1e-4,d.W(xn)),h=Math.max(1e-4,d.H(xn));skinCol(sp,xn,Math.atan2(ly/w,lz/h),out);break;}
+    case M.SKIN2:{const xn=clamp(lx/d.L+.5,0,1);const w=Math.max(1e-4,d.W(xn)),h=Math.max(1e-4,d.H(xn));skinCol(sp,xn,Math.atan2(ly/w,lz/h),out);out.lerp(_c2.set(0xd9d3c6),.5);break;}
     case M.FLESH:{out.set(sp.flesh);const fr=TAU/(d.L/13);const band=smooth(.8,.97,Math.sin(lx*fr+Math.abs(lz)*fr*1.7));out.multiplyScalar(1-.17*band);break;}
     case M.BLOOD:out.set(sp.blood||sp.flesh);break;
     case M.FIN:out.set(sp.fin);break;
@@ -119,7 +120,8 @@ function ellipsoidObj(fish,mat,c,r,vs,organ){
 }
 export function buildFish(fish){
   const sp=fish.sp,d=fish.d,L=d.L;
-  const N=clamp(Math.round(L/.0048),60,150),vs=L/N;fish.vs=vs;
+  const DET={mid:[.0052,150],high:[.004,200],max:[.0032,250]}[save.detail]||[.004,200];
+  const N=clamp(Math.round(L/DET[0]),60,DET[1]),vs=L/N;fish.vs=vs;
   const tail=L*(sp.fam==='eel'?.06:.15),nose=L*.04;
   const finTop=sp.fam==='round'?d.H(.55)*(sp.spiny?1.95:1.6):d.hmax*1.02;
   const ymax=d.wmax*1.05;
@@ -215,11 +217,11 @@ export function carve(ob,tris,opts={}){
   const ix0=Math.max(0,Math.floor(mnx-kerf)),iy0=Math.max(0,Math.floor(mny-kerf)),iz0=Math.max(0,Math.floor(mnz-kerf));
   const ix1=Math.min(ob.nx-1,Math.ceil(mxx+kerf)),iy1=Math.min(ob.ny-1,Math.ceil(mxy+kerf)),iz1=Math.min(ob.nz-1,Math.ceil(mxz+kerf));
   const res={removed:0,bone:0,mats:{}};if(ix0>ix1||iy0>iy1||iz0>iz1)return res;
-  if((ix1-ix0)*(iy1-iy0)*(iz1-iz0)>400000)return res;
+  if((ix1-ix0)*(iy1-iy0)*(iz1-iz0)>4000000)return res;
   const m=ob.m,nx=ob.nx,ny=ob.ny;
   for(let z=iz0;z<=iz1;z++)for(let y=iy0;y<=iy1;y++)for(let x=ix0;x<=ix1;x++){
     const i=x+nx*(y+ny*z),mm=m[i];if(!mm)continue;
-    if(opts.only&&mm!==opts.only)continue;
+    if(opts.only&&!(opts.only===mm||opts.only.includes?.(mm)))continue;
     _p.set(x,y,z);let best=1e9;
     for(const t of lt){closestOnTri(_p,t[0],t[1],t[2],_cq);const dd=_cq.distanceToSquared(_p);if(dd<best)best=dd;if(best<=k2)break;}
     if(best>k2)continue;
@@ -239,15 +241,26 @@ export function scrape(ob,ptsW,rad){
   for(const pw of ptsW){
     const q=pw.clone().applyMatrix4(_inv).sub(ob.o).divideScalar(vs).subScalar(.5);
     const x0=Math.max(0,Math.floor(q.x-r)),x1=Math.min(ob.nx-1,Math.ceil(q.x+r)),y0=Math.max(0,Math.floor(q.y-r)),y1=Math.min(ob.ny-1,Math.ceil(q.y+r)),z0=Math.max(0,Math.floor(q.z-r)),z1=Math.min(ob.nz-1,Math.ceil(q.z+r));
-    for(let z=z0;z<=z1;z++)for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const i=ob.idx(x,y,z);if(ob.m[i]!==M.SKIN)continue;if((x-q.x)**2+(y-q.y)**2+(z-q.z)**2>r2)continue;ob.m[i]=0;n++;ob.markVoxel(x);}
+    for(let z=z0;z<=z1;z++)for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const i=ob.idx(x,y,z);if(ob.m[i]!==M.SKIN&&ob.m[i]!==M.SKIN2)continue;if((x-q.x)**2+(y-q.y)**2+(z-q.z)**2>r2)continue;ob.m[i]=0;n++;ob.markVoxel(x);}
   }
   if(n){ob.count-=n;ob.splitPending=true;}
   return n;
 }
+/* scaler: skin under the tool loses its scales (stays in place, changes look and price) */
+export function descale(ob,ptsW,rad){
+  ob.g.updateMatrixWorld(true);_inv.copy(ob.g.matrixWorld).invert();const vs=ob.vs,r=rad/vs,r2=r*r;let n=0;
+  for(const pw of ptsW){
+    const q=pw.clone().applyMatrix4(_inv).sub(ob.o).divideScalar(vs).subScalar(.5);
+    const x0=Math.max(0,Math.floor(q.x-r)),x1=Math.min(ob.nx-1,Math.ceil(q.x+r)),y0=Math.max(0,Math.floor(q.y-r)),y1=Math.min(ob.ny-1,Math.ceil(q.y+r)),z0=Math.max(0,Math.floor(q.z-r)),z1=Math.min(ob.nz-1,Math.ceil(q.z+r));
+    for(let z=z0;z<=z1;z++)for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const i=ob.idx(x,y,z);if(ob.m[i]!==M.SKIN)continue;if((x-q.x)**2+(y-q.y)**2+(z-q.z)**2>r2)continue;ob.m[i]=M.SKIN2;n++;ob.markVoxel(x);}
+  }
+  return n;
+}
 /* ---------- connectivity: loose islands become their own objects ---------- */
+let _lab=new Int32Array(0),_que=new Int32Array(0);
 export function split(ob){
   ob.splitPending=false;
-  const {nx,ny,nz,m}=ob;const n=m.length;const lab=new Int32Array(n);const q=new Int32Array(n);const comps=[];
+  const {nx,ny,nz,m}=ob;const n=m.length;if(_lab.length<n){_lab=new Int32Array(n);_que=new Int32Array(n);}const lab=_lab,q=_que;lab.fill(0,0,n);const comps=[];
   for(let s=0;s<n;s++){
     if(!m[s]||lab[s])continue;const id=comps.length+1;let h=0,t=0;q[t++]=s;lab[s]=id;
     let cnt=0,bx0=1e9,by0=1e9,bz0=1e9,bx1=-1,by1=-1,bz1=-1;
@@ -301,10 +314,10 @@ function distToSolid(ob,pLocal){
 }
 /* ---------- composition & worth ---------- */
 export function stats(ob){
-  const s={n:0,flesh:0,skin:0,bone:0,head:0,fin:0,organ:0,surface:0,byMat:{}};const {nx,ny,nz,m}=ob;
+  const s={n:0,flesh:0,skin:0,scaled:0,bone:0,head:0,fin:0,organ:0,surface:0,byMat:{}};const {nx,ny,nz,m}=ob;
   for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=0;x<nx;x++){const i=x+nx*(y+ny*z),mm=m[i];if(!mm)continue;s.n++;s.byMat[mm]=(s.byMat[mm]||0)+1;
-    if(mm===M.FLESH||mm===M.BLOOD||mm===M.LINING)s.flesh++;else if(mm===M.SKIN)s.skin++;else if(mm===M.BONE||mm===M.RIB)s.bone++;else if(mm===M.HEAD||mm===M.GILL||mm===M.EYE)s.head++;else if(mm===M.FIN)s.fin++;else s.organ++;
-    if(mm===M.SKIN||!ob.get(x+1,y,z)||!ob.get(x-1,y,z)||!ob.get(x,y+1,z)||!ob.get(x,y-1,z)||!ob.get(x,y,z+1)||!ob.get(x,y,z-1))s.surface++;}
+    if(mm===M.FLESH||mm===M.BLOOD||mm===M.LINING)s.flesh++;else if(mm===M.SKIN||mm===M.SKIN2){s.skin++;if(mm===M.SKIN2)s.scaled++;}else if(mm===M.BONE||mm===M.RIB)s.bone++;else if(mm===M.HEAD||mm===M.GILL||mm===M.EYE)s.head++;else if(mm===M.FIN)s.fin++;else s.organ++;
+    if(mm===M.SKIN||mm===M.SKIN2||!ob.get(x+1,y,z)||!ob.get(x-1,y,z)||!ob.get(x,y+1,z)||!ob.get(x,y-1,z)||!ob.get(x,y,z+1)||!ob.get(x,y,z-1))s.surface++;}
   return s;
 }
 export function massOf(ob){return Math.max(.02,ob.count*ob.vs**3*ob.fish.density);}
@@ -331,6 +344,7 @@ export function evaluate(ob){
   }
   if(hf>.2&&kind!=='Голова')mult*=.85;
   if(mf<.03){kind='Обрезки';mult=.4;}
+  if(s.skin>20&&s.scaled/s.skin>.8){mult*=1.12;kind+=', без чешуи';}
   if(f.bile)mult*=.8;
   return {kind:kind+(f.bile?' (желчь)':''),kg,value:base*mf*mult*fresh,waste:false};
 }

@@ -20,7 +20,7 @@ export const S={T:0,AMP:.18,storm:.05,rainI:0,flashT:0,gameState:'menu',view:'se
 
 /* ---------------- save + upgrades ---------------- */
 const SAVE_KEY='storm-catch-v1';
-export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0};
+export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0,detail:'high'};
 try{const s=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');if(s)save=Object.assign(save,s);}catch(e){}
 export function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save));}catch(e){}}
 export const UPG={
@@ -184,7 +184,8 @@ export const bucketContent=new THREE.Group();bucketContent.position.y=.12;BUCKET
 /* holsters (boat-local poses) */
 export const HOLSTER={
   rod:{pos:V(.28,.62,-1.2),quat:new THREE.Quaternion().setFromEuler(new THREE.Euler(-.62,0,0))},
-  knife:{pos:V(TABLE.x-.36,.95,TABLE.z+.45),quat:new THREE.Quaternion().setFromEuler(new THREE.Euler(0,0,-Math.PI/2))},
+  knife:{pos:V(TABLE.x-.36,.95,TABLE.z+.54),quat:new THREE.Quaternion().setFromEuler(new THREE.Euler(0,0,-Math.PI/2))},
+  scaler:{pos:V(TABLE.x-.36,.95,TABLE.z+.36),quat:new THREE.Quaternion().setFromEuler(new THREE.Euler(0,0,-Math.PI/2))},
   net:{pos:V(-.45,.98,-1.17),quat:new THREE.Quaternion().setFromEuler(new THREE.Euler(.35,0,0))},
 };
 {const tube=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.3,6),Mat(0xb8bcc0,{metalness:.7,roughness:.35}));tube.position.copy(HOLSTER.rod.pos);tube.quaternion.copy(HOLSTER.rod.quat);tube.translateY(.15);boat.add(tube);

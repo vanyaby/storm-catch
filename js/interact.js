@@ -3,6 +3,7 @@ import { THREE, S, V, UP, clamp, rand, damp, save, knifeMult, scene, camera, ren
   HOLSTER, DECK_SPOT, fishRoot, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { CANNON, world, G_STATIC, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
 import { M, carve, scrape, split, evaluate, massOf, matAt } from './voxel.js';
+const SKINS=[M.SKIN,M.SKIN2];
 
 export const items=[];          // everything a hand can take: {type:'piece'|'tool', obj, body, com, vobj?, tool?, heldBy, ...}
 export const links=[];          // organs hanging from an opened fish
@@ -10,7 +11,7 @@ const _m=new THREE.Matrix4(),_m2=new THREE.Matrix4(),_q=new THREE.Quaternion(),_
 
 /* ---------- bodies ---------- */
 function bodyFromVoxels(ob){
-  const N=Math.max(1,ob.count),vs=ob.vs;const b=clamp(Math.ceil(Math.cbrt(N/30)),1,10);
+  const N=Math.max(1,ob.count),vs=ob.vs;const b=clamp(Math.ceil(Math.cbrt(N/30)),1,18);
   const bx=Math.ceil(ob.nx/b),by=Math.ceil(ob.ny/b),bz=Math.ceil(ob.nz/b);const cnt=new Int32Array(bx*by*bz);const com=V();const c=V();let n=0;
   for(let z=0;z<ob.nz;z++)for(let y=0;y<ob.ny;y++)for(let x=0;x<ob.nx;x++){if(!ob.m[x+ob.nx*(y+ob.ny*z)])continue;cnt[((x/b)|0)+bx*(((y/b)|0)+by*((z/b)|0))]++;com.add(ob.center(x,y,z,c));n++;}
   if(n)com.divideScalar(n);
@@ -165,7 +166,10 @@ function nearestFor(h){
   const hp=h.grip.getWorldPosition(V());let best=null,bd=1e9;
   for(const it of items){
     if(it.heldBy&&it.type==='tool')continue;
-    if(it.type==='tool'){const d=hp.distanceTo(it.obj.getWorldPosition(_v2));if(d<.16&&d<bd){bd=d;best=it;}continue;}
+    if(it.type==='tool'){let d;
+      if(it.seg){const l=it.obj.worldToLocal(hp.clone());const t=clamp(l.y,0,it.seg);const dd=Math.hypot(l.x,l.y-t,l.z);if(dd>.11)continue;it._t=t;d=dd*.5;}   // long tools: anywhere along the handle
+      else d=hp.distanceTo(it.obj.getWorldPosition(_v2));
+      if(d<.16&&d<bd){bd=d;best=it;}continue;}
     const box=new THREE.Box3().setFromObject(it.obj);if(box.isEmpty())continue;box.expandByScalar(.035);
     if(box.containsPoint(hp)){const d=box.getCenter(_v2).distanceTo(hp)*.5+(it.vobj.kind==='organ'?-.05:0);if(d<bd){bd=d;best=it;}}
   }
@@ -185,7 +189,11 @@ export function updateHand(h,dt,gp){
     if(cand!==h.hover){if(h.hover&&h.hover.type)setHi(h.hover,false);h.hover=cand;if(cand){setHi(cand,true);buzzHand(h===mainHand()?'main':'off',.12,12);}}
     if(sq&&!h.prevSq&&!S.fn.handGrabSpecial?.(h)){
       if(n&&n.type==='organIn'){const it=releaseOrgan(n.fish,n.org,false);if(it){sfx.squelch();grabPiece(h,it);}}
-      else if(n&&n.type==='tool'){h.held=n;n.heldBy=h;setHi(n,false);if(n.body.world)world.removeBody(n.body);n.inHolster=false;h.grip.add(n.obj);n.obj.position.copy(n.gripPos);n.obj.quaternion.copy(n.gripQuat);sfx.pick();buzzHand(h===mainHand()?'main':'off',.4,30);S.fn.onToolGrab?.(n,h);}
+      else if(n&&n.type==='tool'){h.held=n;n.heldBy=h;setHi(n,false);if(n.body.world)world.removeBody(n.body);n.inHolster=false;
+        if(n.follow)boat.attach(n.obj);
+        else{h.grip.add(n.obj);n.obj.quaternion.copy(n.gripQuat);
+          if(n.seg){const t=clamp(n._t??.16,.03,n.seg);n.obj.position.copy(V(0,1,0).applyQuaternion(n.gripQuat).multiplyScalar(-t)).add(V(0,-.02,0));}else n.obj.position.copy(n.gripPos);}
+        sfx.pick();buzzHand(h===mainHand()?'main':'off',.4,30);S.fn.onToolGrab?.(n,h);}
       else if(n)grabPiece(h,n);
     }
   }else if(!sq&&h.prevSq){const it=h.held;dropHeld(h);S.fn.onRelease?.(it,h);}
@@ -250,6 +258,14 @@ export function collect(dt){
   for(const it of items){if(!it.body||it.heldBy&&it.kinematic)continue;const b=it.body;const v=b.velocity.length();if(v>7)b.velocity.scale(7/v,b.velocity);}
 }
 
+/* what the blade edge is sitting in right now (for resistance) */
+export function edgeMats(pts){
+  const r={n:0,soft:0,hard:0,bone:0};const bb=new THREE.Box3().setFromPoints(pts).expandByScalar(.01);
+  for(const it of pieceItems()){const box=new THREE.Box3().setFromObject(it.obj);if(!box.intersectsBox(bb))continue;
+    for(const p of pts){const m=matAt(it.vobj,p);if(!m)continue;r.n++;if(m===M.BONE)r.bone++;else if(m===M.HEAD||m===M.GILL||m===M.RIB)r.hard++;else r.soft++;}}
+  return r;
+}
+export function snapToHand(it,hpW){const pl=boat.worldToLocal(hpW.clone());it.obj.position.copy(pl).sub(it.com.clone().applyQuaternion(it.obj.quaternion));it.body.position.set(pl.x,pl.y,pl.z);it.body.velocity.setZero();}
 /* ---------- cutting ---------- */
 /* edge0/edge1: arrays of world points along the blade now and a moment ago */
 export function knifeSweep(edgePrev,edgeNow,opts){
@@ -272,8 +288,8 @@ function cutObj(ob,tris,opts){
     // flat blade: cut only where the edge itself sits in the meat; sliding over the surface peels just the skin
     let inSolid=0,inMeat=0;
     const E=opts.edge||[],dense=[];for(let i=0;i<E.length-1;i++)for(let k=0;k<4;k++)dense.push(E[i].clone().lerp(E[i+1],k/4));if(E.length)dense.push(E[E.length-1]);
-    for(const p of dense){const m=matAt(ob,p);if(!m)continue;inSolid++;if(m!==M.SKIN&&m!==M.FIN)inMeat++;}
-    if(inMeat<2||inMeat<inSolid*.5)return carve(ob,tris,{kerf:kerf+.55,only:M.SKIN});
+    for(const p of dense){const m=matAt(ob,p);if(!m)continue;inSolid++;if(m!==M.SKIN&&m!==M.SKIN2&&m!==M.FIN)inMeat++;}
+    if(inMeat<2||inMeat<inSolid*.5)return carve(ob,tris,{kerf:kerf+.55,only:SKINS});
   }
   const res=carve(ob,tris,{kerf,chop:opts.chop});
   if(res.removed){

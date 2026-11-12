@@ -2,7 +2,7 @@
 import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, pick, damp, save, persist, lineStrength, reelMult, scene, rig, camera, renderer, boat,
   RAIL, DECK_SPOT, HOLSTER, SPECIES, LU, LURES, lureModel, tackleSlots, hotspot, wind, waveH, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { CANNON, world } from './physics.js';
-import { items, registerTool, toHolster, HANDS, mainHand, offHand, buzzHand, addPiece, removeItem, handMatrixBoat, grabPiece } from './interact.js';
+import { items, registerTool, toHolster, HANDS, mainHand, offHand, buzzHand, addPiece, removeItem, handMatrixBoat, grabPiece, snapToHand } from './interact.js';
 import { newFish, buildFish } from './voxel.js';
 
 export const F={state:'ready',lure:V(),lureVel:V(),depth:0,charge:0,bite:null,fish:null,tension:0,drag:.65,slackT:0,breakT:0,landT:0,
@@ -37,6 +37,7 @@ setCrankSide();
 export const rodItem=registerTool('rod',rod.root,b=>b.addShape(new CANNON.Box(new CANNON.Vec3(.025,1.25,.025)),new CANNON.Vec3(0,1.25,0)),.6,HOLSTER.rod,
   V(0,-.02,.16),new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2+.55,0,0)));
 
+rodItem.seg=.9;
 /* ---------- landing net ---------- */
 function buildNet(){
   const g=new THREE.Group();const wood=Mat(0x8a6a45),ringM=Mat(0x9aa0a4,{metalness:.6,roughness:.4});
@@ -51,6 +52,7 @@ export const net=buildNet();
 export const netItem=registerTool('net',net.root,b=>{b.addShape(new CANNON.Box(new CANNON.Vec3(.02,.5,.02)),new CANNON.Vec3(0,.5,0));b.addShape(new CANNON.Box(new CANNON.Vec3(.22,.22,.04)),new CANNON.Vec3(0,1.22,0));},.9,HOLSTER.net,
   V(0,-.02,.1),new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2+.25,0,0)));
 
+netItem.seg=1.0;
 /* ---------- line, lure, arc preview ---------- */
 const lineGeo=new THREE.BufferGeometry();const LINE_N=24;lineGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(LINE_N*3),3));
 const fishLine=new THREE.Line(lineGeo,new THREE.LineBasicMaterial({color:0xf3efe2,transparent:true,opacity:.85}));fishLine.frustumCulled=false;scene.add(fishLine);
@@ -218,8 +220,8 @@ export function liftOrNet(){
   const {ob}=takeFishOut();boat.add(ob.g);const tw=boat.worldToLocal(tipW(V()));ob.g.position.copy(tw).add(V(0,-.4,0));ob.g.quaternion.setFromEuler(new THREE.Euler(0,0,Math.PI/2));
   const it=addPiece(ob);const kin=new CANNON.Body({mass:0,type:CANNON.Body.KINEMATIC});kin.collisionResponse=false;kin.position.set(tw.x,tw.y,tw.z);world.addBody(kin);
   const head=V(ob.fish.d.L*.45,0,0);const piv=head.sub(it.com);
-  const c=new CANNON.DistanceConstraint(it.body,kin,.35,60);world.addConstraint(c);
-  F.dangle={it,kin,c};msg('Возьмите рыбу рукой','Она висит на леске',1.6);S.fn.tut?.('dangle');
+  const c=new CANNON.DistanceConstraint(it.body,kin,.3,60);world.addConstraint(c);
+  F.dangle={it,kin,c,p:tw.clone()};msg('Возьмите рыбу свободной рукой','Она подтянется к удилищу',1.8);S.fn.tut?.('dangle');
 }
 function netCatch(){
   const {ob,f}=takeFishOut();net.content.add(ob.g);ob.g.position.set(0,0,0);ob.g.quaternion.setFromEuler(new THREE.Euler(0,Math.PI/2,0));
@@ -235,6 +237,7 @@ function crankHandAngle(hp){const l=rod.crank.parent.worldToLocal(hp.clone()).su
 S.fn.handGrabSpecial=h=>{
   const hp=h.grip.getWorldPosition(V());
   const rh=rodHand();
+  if(F.dangle&&h!==rh){const it=F.dangle.it;const fp=it.obj.localToWorld(it.com.clone());if(hp.distanceTo(fp)<.5){snapToHand(it,hp);grabPiece(h,it);return true;}}
   if(rh&&rh!==h&&save.reelMode==='hand'&&hp.distanceTo(rod.knob.getWorldPosition(V()))<.15){
     crank.held=true;crank.hand=h;h.crank=true;crank.prevA=crankHandAngle(hp);crank.prevQ=h.grip.getWorldQuaternion(new THREE.Quaternion());
     h.mitt&&(h.mitt.visible=false);rod.knobHand.visible=true;buzzHand(h===mainHand()?'main':'off',.3,30);S.fn.tut?.('crank');return true;}
@@ -302,7 +305,8 @@ export function fishingVR(dt){
   // net turned over above the deck drops the fish
   if(F.netted){const up=V(0,1,0).applyQuaternion(net.hoop.getWorldQuaternion(new THREE.Quaternion()));const zdir=V(0,0,-1).applyQuaternion(net.root.getWorldQuaternion(new THREE.Quaternion()));
     if(zdir.y>.55||!netItem.heldBy&&!netItem.inHolster){releaseNetted();msg('Рыба на палубе','',1);}}
-  if(F.dangle){const kp=boat.worldToLocal(tipW(V()));F.dangle.kin.position.set(kp.x,kp.y,kp.z);}
+  if(F.dangle){ // the fish is swung in: it hangs within reach, under the lower part of the rod
+    const tgt=boat.worldToLocal(rodHand()?rod.root.localToWorld(V(0,.95,0)):tipW(V()));F.dangle.p.lerp(tgt,1-Math.exp(-3*dt));const kp=F.dangle.p;F.dangle.kin.position.set(kp.x,kp.y,kp.z);F.dangle.it.body.wakeUp();}
 }
 export function updateFishing(dt){
   const r=railW();
