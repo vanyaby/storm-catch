@@ -89,7 +89,7 @@ export function launchLure(dir,power,vel){
   tipW(F.lure);
   if(vel)F.lureVel.copy(vel);
   else{const D=5+power*36,v=Math.sqrt(D*9.8/.94)*.9,a=.6;F.lureVel.copy(dir).multiplyScalar(v*Math.cos(a));F.lureVel.y=v*Math.sin(a);}
-  F.lureVel.addScaledVector(wind,S.storm*2.2);F.state='flying';F.line=.4;F.bail='open';F.feather=false;sfx.whoosh();arc.visible=false;ringMark.visible=false;
+  F.lureVel.addScaledVector(wind,S.storm*2.2);F.state='flying';F.line=.4;F.bail='open';F.feather=false;sfx.whoosh();bend.kick(-1.2);arc.visible=false;ringMark.visible=false;
   S.fn.tut?.('cast');
 }
 
@@ -322,7 +322,7 @@ function updateBend(dt){
   const load=V();const T=(F.state==='hooked'||F.state==='landing')?F.tension:biteLoad+(F.dangle?.25:0)+(F.state==='ready'||F.state==='wind'?.02:0);
   if(T>0){lineTarget(_lt);tipW(_tip);const dir=_lt.sub(_tip).normalize().applyQuaternion(qi);load.set(dir.x,0,dir.z).multiplyScalar(T*1.1+ (dir.y<0?T*.3:0));}
   const K=140,C=11;
-  const f=V(load.x*K-accL.x*.018*K-bend.b.x*K-bend.v.x*C,0,load.z*K-accL.z*.018*K-bend.b.z*K-bend.v.z*C);
+  const f=V(load.x*K-accL.x*.045*K-bend.b.x*K-bend.v.x*C,0,load.z*K-accL.z*.045*K-bend.b.z*K-bend.v.z*C);
   bend.v.addScaledVector(f,dt);bend.b.addScaledVector(bend.v,dt);bend.b.clampLength(0,1.4);
   const B=bend.b.length();const ax=V(bend.b.z,0,-bend.b.x);const W=[.04,.08,.14,.2,.26,.28];
   for(let i=0;i<rod.segs.length;i++){if(B<1e-4)rod.segs[i].quaternion.identity();else rod.segs[i].quaternion.setFromAxisAngle(_v1.copy(ax).divideScalar(B),B*W[i]);}

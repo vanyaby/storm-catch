@@ -262,7 +262,7 @@ export function collect(dt){
 export function edgeMats(pts){
   const r={n:0,soft:0,hard:0,bone:0};const bb=new THREE.Box3().setFromPoints(pts).expandByScalar(.01);
   for(const it of pieceItems()){const box=new THREE.Box3().setFromObject(it.obj);if(!box.intersectsBox(bb))continue;
-    for(const p of pts){const m=matAt(it.vobj,p);if(!m)continue;r.n++;if(m===M.BONE)r.bone++;else if(m===M.HEAD||m===M.GILL||m===M.RIB)r.hard++;else r.soft++;}}
+    for(const p of pts){const m=matAt(it.vobj,p);if(!m)continue;r.n++;if(!r.it)r.it=it;if(m===M.BONE)r.bone++;else if(m===M.HEAD||m===M.GILL||m===M.RIB)r.hard++;else r.soft++;}}
   return r;
 }
 export function snapToHand(it,hpW){const pl=boat.worldToLocal(hpW.clone());it.obj.position.copy(pl).sub(it.com.clone().applyQuaternion(it.obj.quaternion));it.body.position.set(pl.x,pl.y,pl.z);it.body.velocity.setZero();}

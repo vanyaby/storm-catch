@@ -32,6 +32,11 @@ const scalerItem=registerTool('scaler',scaler,b=>b.addShape(new CANNON.Box(new C
 const SC_PTS=[V(0,-.014,-.03),V(0,-.014,-.055),V(0,-.014,-.08)];
 const KN_EDGE=[];for(let i=0;i<=10;i++){const z=-.012-i*.0215;KN_EDGE.push(V(0,z<-.19?-.02+(-.19-z)*.35:-.0205,z));}
 const KNIFE_TIP=V(0,-.012,-.228);
+/* whetstone on the table: draw the blade across it to sharpen */
+const STONE=V(TABLE.x-.3,TABLE.top+.012,TABLE.z-.62);
+{const st=new THREE.Mesh(new THREE.BoxGeometry(.06,.024,.18),Mat(0x6b6f74,{roughness:1}));st.position.copy(STONE);boat.add(st);
+ const base=new THREE.Mesh(new THREE.BoxGeometry(.08,.012,.2),Mat(0x5a3a22));base.position.copy(STONE).add(V(0,-.016,0));boat.add(base);}
+S.sharp=1;
 
 /* ---------- state ---------- */
 const board={mode:'v',hY:.05,loading:false};
@@ -148,11 +153,19 @@ function vrKnife(dt){
   // what is the blade sitting in? meat slows it, bone stops it unless you strike
   const cur=KN_EDGE.map(p=>knife.localToWorld(p.clone()));const r0=edgeMats(cur);
   const chop=handSp>2.2||(save.knife>=2&&handSp>1.4);
+  // sharpening: the blade drawn over the stone
+  const midW=knife.localToWorld(V(0,-.02,-.12));const sl=boat.worldToLocal(midW.clone());
+  if(Math.abs(sl.x-STONE.x)<.05&&Math.abs(sl.z-STONE.z)<.11&&Math.abs(sl.y-STONE.y)<.035&&handSp>.15){
+    const was=S.sharp;S.sharp=Math.min(1,S.sharp+dt*.35);h.st=(h.st||0)-dt;if(h.st<=0){h.st=.12;sfx.sharpen();buzzHand(who,.3,40);splash(midW,2,.6,.08);}
+    if(was<1&&S.sharp>=1)msg('Нож наточен','',1);}
   const d=_kp.clone().sub(knife.position);const lag=d.length();
   let vmax=1e9;
   if(r0.n&&!chop){
     if(r0.bone)vmax=.06;
-    else{const f=Math.min(1,r0.n/cur.length*2.5);const base=(r0.hard>r0.soft?.3:.5)*knifeMult();vmax=lerp(2.5,base,f)*(1+lag*10);}
+    else{const f=Math.min(1,r0.n/cur.length*2.5);let base=(r0.hard>r0.soft?.3:.5)*knifeMult()*(.35+.65*S.sharp);
+      // along the fish (with the grain) the blade glides, across it drags
+      if(r0.it&&handSp>.05){const ax=V(1,0,0).applyQuaternion(r0.it.obj.getWorldQuaternion(new THREE.Quaternion()));const mv=d.clone().normalize();base*=lerp(.8,1.35,Math.abs(ax.dot(mv)));}
+      vmax=lerp(2.5,base,f)*(1+lag*10);}
   }
   if(lag>.3){knife.position.copy(_kp);knife.updateMatrixWorld(true);prevEdge=null;return;}     // pulled free, no cut
   const stepMax=vmax*dt;if(lag>stepMax)knife.position.addScaledVector(d,stepMax/lag);else knife.position.copy(_kp);
@@ -166,7 +179,10 @@ function vrKnife(dt){
       const r=knifeSweep(prevEdge,now,{flat,chop});
       if(r.removed)S.cutOnLine=!flat;
       if(r.bone>2&&!chop&&handSp>.25){sfx.bone();}
-      if(chop&&r.removed>20){sfx.chop();buzzHand(who,1,70);}
+      if(chop&&r.removed>20){sfx.crunch();buzzHand(who,1,70);}
+      if(r.removed)S.sharp=Math.max(.2,S.sharp-r.removed*2.5e-6-(chop?.004:0));
+      if(S.sharp<.45&&!S.dullWarned){S.dullWarned=true;msg('Нож затупился','Проведите лезвием по точилу на столе',2);}
+      if(S.sharp>.8)S.dullWarned=false;
     }
   }
   prevEdge=now;
@@ -428,7 +444,7 @@ function drawWrist(dt){
   wristTex.needsUpdate=true;
 }
 function vrHint(){
-  if(knifeItem.heldBy)return 'Нож режет всей кромкой и вязнет в мясе. Плашмя по коже — снимает кожу. В кость упирается: рубите резким ударом';
+  if(knifeItem.heldBy)return `Острота ножа ${Math.round(S.sharp*100)}%. Вдоль рыбы режет легче, поперёк туже. В кость упирается: рубите резким ударом. Точило — на столе`;
   if(scalerItem.heldBy)return 'Водите чешуечисткой по коже: чешуя слетает. Рыба без чешуи стоит дороже';
   switch(F.state){case 'ready':return rodInHand()?(F.hasLure?'Зажмите курок, махните и отпустите':'Возьмите приманку из ящика и поднесите к кончику удилища'):'Удочка в держателе у борта, подсак слева от неё, нож у стола';
     case 'water':return F.bite?'Клюёт! Ждите рывка и подсекайте вверх':'Крутите катушку свободной рукой. Без проводки приманка тонет';
