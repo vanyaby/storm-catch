@@ -70,6 +70,25 @@ const lure=new THREE.Group();scene.add(lure);let lureMesh=null;
 const clip=new THREE.Mesh(new THREE.TorusGeometry(.012,.0028,5,10),Mat(0xb9bdc1,{metalness:.8,roughness:.3}));clip.visible=false;scene.add(clip);
 export function setLureModel(id){if(lureMesh)lure.remove(lureMesh);lureMesh=id?lureModel(LU[id]):null;if(lureMesh){lureMesh.position.y=-.03;lure.add(lureMesh);}}
 setLureModel(F.lureId);
+/* under the surface: a fish rising to the boat shows as a dark shape; the line and the lure leave rings on the water */
+const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,20),new THREE.MeshBasicMaterial({color:0x061418,transparent:true,opacity:0,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.visible=false;shadow.renderOrder=3;scene.add(shadow);
+const rings=[];for(let i=0;i<10;i++){const r=new THREE.Mesh(new THREE.RingGeometry(.9,1,24),new THREE.MeshBasicMaterial({color:0xe9f6f6,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide}));r.rotation.x=-Math.PI/2;r.visible=false;r.renderOrder=3;scene.add(r);rings.push({m:r,t:1,life:1});}
+let ringI=0,ringT=0;
+function ripple(p,size=.35,life=1.6){const r=rings[ringI++%rings.length];r.t=0;r.life=life;r.size=size;r.m.position.set(p.x,waveH(p.x,p.z)+.03,p.z);r.m.visible=true;}
+function updateWaterFx(dt){
+  for(const r of rings){if(!r.m.visible)continue;r.t+=dt/r.life;if(r.t>=1){r.m.visible=false;continue;}const s=r.size*(.4+2.4*r.t);r.m.scale.set(s,s,s);r.m.material.opacity=.55*(1-r.t);}
+  ringT-=dt;
+  // where the line enters the water, and a trail while the lure is worked near the surface
+  if((F.state==='water'||F.state==='hooked')&&ringT<=0){ringT=F.state==='hooked'?.45:(F.act>.3?.35:.9);
+    for(let i=rope.p.length-1;i>0;i--){if(rope.p[i].y<waveH(rope.p[i].x,rope.p[i].z)&&rope.p[i-1].y>=waveH(rope.p[i-1].x,rope.p[i-1].z)){ripple(rope.p[i],.18,1.3);break;}}
+    if(F.state==='water'&&F.depth<.6&&F.act>.2)ripple(F.lure,.28,1.1);}
+  // shadow of the fish
+  const f=F.fish;
+  if(f&&(F.state==='hooked'||F.state==='landing')&&!f.air){const surf=waveH(f.pos.x,f.pos.z),dep=surf-f.pos.y;const vis=clamp(1-dep/3,0,1)*(F.state==='landing'?.55:.38);
+    shadow.visible=vis>.02;shadow.position.set(f.pos.x,surf+.02,f.pos.z);shadow.material.opacity=vis;
+    const L=f.len*.5;shadow.scale.set(L,L*.34,1);const sp=Math.hypot(f.vel.x,f.vel.z);const yaw=sp>.2?Math.atan2(f.vel.z,f.vel.x):shadow.rotation.z;shadow.rotation.z=yaw;}
+  else shadow.visible=false;
+}
 const ARC_N=40;const arcGeo=new THREE.BufferGeometry();arcGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ARC_N*3),3));
 const arc=new THREE.Points(arcGeo,new THREE.PointsMaterial({color:0xf2d38a,size:.05,transparent:true,opacity:.85,depthWrite:false}));arc.frustumCulled=false;arc.visible=false;scene.add(arc);
 const ringMark=new THREE.Mesh(new THREE.RingGeometry(.35,.45,20),new THREE.MeshBasicMaterial({color:0xf2d38a,transparent:true,opacity:.7,side:THREE.DoubleSide,depthWrite:false}));ringMark.rotation.x=-Math.PI/2;ringMark.visible=false;scene.add(ringMark);
@@ -284,6 +303,9 @@ export const crank={held:false,hand:null,prevA:0,prevQ:null,acc:0,rate:0,angle:0
 function crankHandAngle(hp){const l=rod.crank.parent.worldToLocal(hp.clone()).sub(rod.crank.position);return Math.atan2(l.y,-l.z);}
 S.fn.handGrabSpecial=h=>{
   const hp=h.grip.getWorldPosition(V());const rh=rodHand();
+  if(F.state==='landing'&&F.fish&&h!==rh&&hp.distanceTo(F.fish.pos)<.5){
+    if(F.fish.kg<=6){const {ob}=takeFishOut();boat.add(ob.g);ob.g.position.copy(boat.worldToLocal(hp.clone()));ob.g.quaternion.setFromEuler(new THREE.Euler(0,Math.PI/2,0));const it=addPiece(ob);snapToHand(it,hp);grabPiece(h,it);msg('Рыба в руке','Несите на стол',1.2);S.fn.tut?.('unhooked');return true;}
+    else{msg('Слишком тяжёлая','Подведите подсак под рыбу',1.4);return true;}}
   if(F.dangle&&h!==rh){const it=F.dangle.it;const fp=it.obj.localToWorld(it.com.clone());if(hp.distanceTo(fp)<.5){snapToHand(it,hp);grabPiece(h,it);return true;}}
   if(rh&&rh!==h&&save.reelMode==='hand'&&hp.distanceTo(rod.knob.getWorldPosition(V()))<.15){
     crank.held=true;crank.hand=h;h.crank=true;crank.prevA=crankHandAngle(hp);crank.prevQ=h.grip.getWorldQuaternion(new THREE.Quaternion());
@@ -329,7 +351,7 @@ function updateHeldLures(){
   for(const h of Object.values(HANDS)){if(!h||!h.heldLure)continue;const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const hp=h.grip.getWorldPosition(V());
     const sp=rope.p[ROPE_N-1];
     if(hp.distanceTo(sp)>.16)h.lureFree=true;      // must be carried away from the carabiner before it can clip back
-    if(F.state==='ready'&&!F.hasLure&&h.lureFree&&hp.distanceTo(sp)<.09){tieLure(h.heldLure);hapPulse(h,.7,40);const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;continue;}
+    if(F.state==='ready'&&!F.hasLure&&h.lureFree&&hp.distanceTo(sp)<.09){tieLure(h.heldLure);S.fn.tut?.('lureswap');hapPulse(h,.7,40);const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;continue;}
     if(!sq){const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;}}
 }
 
@@ -443,6 +465,7 @@ function lurePlay(dt,L,reeling,maxD){
 }
 /* ---------- per-frame, both ---------- */
 export function updateFishing(dt){
+  updateWaterFx(dt);
   const r=railW();
   switch(F.state){
     case 'wind':F.charge=Math.min(1,F.charge+dt/1.1);break;

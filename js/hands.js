@@ -21,7 +21,7 @@ export function buildHand(){
   const heel=new THREE.Mesh(new THREE.BoxGeometry(.07,.026,.03),matGlove);heel.position.set(0,-.001,.005);root.add(heel);
   // cuff and sleeve
   const cuff=new THREE.Mesh(new THREE.CylinderGeometry(.04,.037,.045,8),matCuff);cuff.rotation.x=Math.PI/2;cuff.position.set(0,0,.045);root.add(cuff);
-  const sleeve=new THREE.Mesh(new THREE.CylinderGeometry(.034,.042,.18,8),matSleeve);sleeve.rotation.x=Math.PI/2;sleeve.position.set(0,0,.17);root.add(sleeve);
+  const sleeve=new THREE.Mesh(new THREE.CylinderGeometry(.034,.04,.1,8),matSleeve);sleeve.rotation.x=Math.PI/2;sleeve.position.set(0,0,.12);root.add(sleeve);
   const fingers=[];
   for(const f of FINGERS){
     const k=new THREE.Group();k.position.set(f.x,.002,f.z);root.add(k);

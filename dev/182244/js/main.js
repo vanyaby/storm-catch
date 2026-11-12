@@ -54,16 +54,18 @@ let nineWave={warned:false,t:0,hit:false,endT:-1},homeArm=0;
 
 /* ---------- tutorial (VR) ---------- */
 const TUT=[
-  {k:['rod'],t:'Возьмите удочку из держателя у борта: поднесите руку и зажмите боковую кнопку'},
-  {k:['cast'],t:'Зажмите курок, махните удилищем к морю и отпустите курок. Жёлтая дуга показывает, куда полетит'},
-  {k:['crank'],t:'Свободной рукой возьмитесь за ручку катушки (она подсветится) и крутите кистью'},
-  {k:['hook'],t:'Ждите. Лёгкие толчки — рыба пробует. Сильный рывок — дёрните удилище вверх'},
-  {k:['landing'],t:'Крутите катушку. Кольцо на катушке: зелёное — тяните, жёлтое — осторожно, красное — ослабьте правым стиком'},
-  {k:['netted','unhooked'],t:'Маленькую рыбу поднимите рывком удилища и возьмите рукой. Большую — подсаком с крюка у борта'},
+  {k:['rod'],t:'Возьмите удочку из держателя у борта: поднесите руку (рука раскроется) и зажмите боковую кнопку'},
+  {k:['lureswap','cast'],t:'Смена приманки: возьмите приманку рукой, курком отстегните, поднесите любую из ящика к карабину. Или сразу забрасывайте'},
+  {k:['cast'],t:'Зажмите курок: палец прижал леску и дужка открылась. Махните и отпустите курок на взмахе. Жёлтая дуга покажет, куда упадёт приманка'},
+  {k:['crank'],t:'Возьмитесь свободной рукой за ручку катушки (она подсветится) и крутите: первый оборот закрывает дужку. Ведите приманку так, как подсказано на запястье'},
+  {k:['hook'],t:'Ждите. Лёгкие толчки в руке — рыба пробует. Сильный рывок — резко дёрните удилище вверх'},
+  {k:['landing'],t:'Рука с удочкой чувствует рыбу: ровный гул — тянет, тишина — леска провисла, подматывайте. Кольцо на катушке: красное — ослабьте правым стиком'},
+  {k:['netted','unhooked'],t:'Усталую мелкую рыбу можно взять рукой из воды. Крупную — подсаком с крюка у борта'},
   {k:['table'],t:'Отнесите рыбу на стол. Нож лежит у края стола'},
-  {k:['open'],t:'Вспорите брюхо: проведите кончиком ножа неглубоко вдоль живота'},
+  {k:['open'],t:'Вспорите брюхо: проведите кончиком ножа неглубоко вдоль живота. Режет только нижняя кромка, в кожу нож упирается — слегка надавите'},
   {k:['organ'],t:'Возьмите потроха рукой и бросьте в ведро. Поднимите рыбу — они свесятся сами'},
-  {k:['ice'],t:'Отрежьте голову, снимите филе вдоль хребта и положите в ледник. Нож плашмя по коже снимает кожу'},
+  {k:['chop'],t:'Хребет нож не берёт: рубите резким ударом или пилите, двигая лезвие вперёд-назад с нажимом. Слабая долгая вибрация — нож упёрся'},
+  {k:['ice'],t:'Снимите филе вдоль хребта и положите в ледник. Нож плашмя по коже снимает кожу. Затупился — точило на столе'},
 ];
 S.fn.tut=key=>{const st=TUT[save.tutorial];if(!st||!st.k.includes(key))return;save.tutorial++;persist();sfx.coin();if(save.tutorial>=TUT.length)msg('Обучение пройдено','Удачной рыбалки!',2);};
 S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
@@ -71,7 +73,7 @@ S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
 /* ---------- settings ---------- */
 function segInit(attr,key,parse,cb){document.querySelectorAll(`[${attr}]`).forEach(b=>{const v=parse(b.getAttribute(attr));b.setAttribute('aria-pressed',String(v===save[key]));
   b.addEventListener('click',()=>{save[key]=v;persist();document.querySelectorAll(`[${attr}]`).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));cb&&cb();});});}
-segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);segInit('data-haptic','hapticGain',Number);
+segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);segInit('data-haptic','hapticGain',Number);segInit('data-eye','eyeOff',Number);
 document.getElementById('bTut')?.addEventListener('click',()=>{save.tutorial=0;persist();msg('Обучение начнётся заново','',1.4);});
 ui.bStart.addEventListener('click',()=>{audioInit();startTrip();});
 ui.bView.addEventListener('click',()=>toggleView());ui.bIce.addEventListener('click',()=>clearBoard());ui.bHome.addEventListener('click',()=>goHome());ui.bMute.addEventListener('click',()=>toggleMute());
@@ -266,7 +268,7 @@ function vrKnife(dt){
     else hapCont(h,.1+.2*speed);                                                                                   // soft low hum in meat
     if(rib>0){hapPulse(h,.5,15);sfx.bone();}
     if(organs>0){hapPulse(h,.3,40);sfx.squelch();}
-    if(boneCut){hapPulse(h,1,90);sfx.crunch();}
+    if(boneCut){hapPulse(h,1,90);sfx.crunch();S.fn.tut?.('chop');}
     if(removedTotal){S.cutOnLine=true;S.sharp=Math.max(.2,S.sharp-removedTotal*2.5e-6-(boneCut?.004:0));S.cutSound=1;}
     if(S.sharp<.45&&!S.dullWarned){S.dullWarned=true;msg('Нож затупился','Проведите лезвием по точилу на столе',2);}
     if(S.sharp>.8)S.dullWarned=false;
@@ -569,7 +571,7 @@ function frame(){
   const dt=stepDt||Math.min(clock.getDelta(),.05);S.T+=dt;ptr.flickCd-=dt;
   updateEnv(dt);
   boat.updateMatrixWorld(true);
-  rig.position.copy(boat.localToWorld(PLAYER.clone().add(walk.off)));rig.quaternion.setFromAxisAngle(UP,walk.yaw);
+  rig.position.copy(boat.localToWorld(PLAYER.clone().add(walk.off)));rig.position.y+=save.eyeOff||0;rig.quaternion.setFromAxisAngle(UP,walk.yaw);
   if(S.shake>0)S.shake-=dt;
   const vr=renderer.xr.isPresenting;
   if(vr){
@@ -583,7 +585,10 @@ function frame(){
   }
   if(S.gameState==='sea'){updateFishing(dt);updateDeck(dt);updateDeskKnife();stormEvents(dt);}
   updateMouseGrab(dt);
-  world.step(1/60,dt,4);syncItems();updateLinks();collect(dt);processSplits(dt);
+  try{world.step(1/60,dt,4);}catch(e){
+    // a body went bad (NaN): put it back on the deck instead of freezing the game
+    for(const it of items){const b=it.body;if(!b)continue;const p=b.position,q=b.quaternion;if([p.x,p.y,p.z,q.x,q.y,q.z,q.w].some(v=>!isFinite(v))){b.position.set(DECK_SPOT.x,.4,DECK_SPOT.z);b.quaternion.set(0,0,0,1);b.velocity.set(0,0,0);b.angularVelocity.set(0,0,0);}}}
+  syncItems();updateLinks();collect(dt);processSplits(dt);
   updateCamera(dt);updateRodLine(dt);updateAnims(dt);updateParts(dt);updateFloaters(dt);updateBirds(dt);
   audioUpdate(dt,(F.state==='hooked')?F.tension/lineStrength():0);updateHUD(dt);drawWrist(dt);
   hapFlush();

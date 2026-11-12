@@ -20,7 +20,7 @@ export const S={T:0,AMP:.18,storm:.05,rainI:0,flashT:0,gameState:'menu',view:'se
 
 /* ---------------- save + upgrades ---------------- */
 const SAVE_KEY='storm-catch-v1';
-export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0,detail:'high',hapticGain:1};
+export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0,detail:'high',hapticGain:1,eyeOff:0};
 try{const s=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');if(s)save=Object.assign(save,s);}catch(e){}
 export function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save));}catch(e){}}
 export const UPG={
