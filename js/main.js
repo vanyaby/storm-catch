@@ -3,9 +3,9 @@ import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, damp, fmtKg, save, per
   renderer, scene, camera, rig, boat, TABLE, ICE, fishRoot, hPlane, PLAYER, DECK_SPOT, HOLSTER, Mat, ui, msg, setHint, resetHint, tickMsg, vrMsg,
   sfx, audioInit, audioUpdate, AU, splash, label, updateParts, updateFloaters, updateBirds, updateEnv, updateAnims, clearAnims, fly, iceContent, bucketContent } from './core.js';
 import { CANNON, world } from './physics.js';
-import { M, newFish, buildFish, scrape, descale, sampler } from './voxel.js';
+import { M, newFish, buildFish, scrape, descale, sampler, updateFishShading } from './fishbody.js';
 import { items, pieceItems, addPiece, removeItem, registerTool, toHolster, HANDS, mainHand, offHand, updateHand, syncItems, updateLinks,
-  collect, processSplits, knifeSweep, markCut, releaseOrgan, toIce, toBucket, onTable, boatPos, mouse, mouseGrab, mouseRelease, updateMouseGrab, links, edgeMats, handMatrixBoat } from './interact.js';
+  collect, processSplits, knifeSweep, cutStep, cutFrame, markCut, releaseOrgan, toIce, toBucket, onTable, boatPos, mouse, mouseGrab, mouseRelease, updateMouseGrab, links, edgeMats, handMatrixBoat } from './interact.js';
 import { hapPulse, hapCont, hapBoth, hapFlush, hapLog } from './haptics.js';
 import { buildHand, animateHand } from './hands.js';
 import { F, rod, rodItem, net, netItem, setCrankSide, setLureModel, tieLure, rodToDesk, rodOffDesk, rodInHand, deskHand, updateDeskRod, deskCast,
@@ -177,6 +177,7 @@ function evalPose(near,pos,RE,RB){
 }
 function vrKnife(dt){
   const h=knifeItem.heldBy;
+  cutFrame(!h);
   if(!h){KN.init=false;KN.prevEdge=null;return;}
   handMatrixBoat(h,_km);if(knifeItem.offset)_km.multiply(knifeItem.offset);_km.decompose(_kp,_kq,_ks);
   if(!KN.init){KN.pos.copy(_kp);KN.prevHand.copy(_kp);KN.vel.set(0,0,0);KN.init=true;KN.prevEdge=null;KN.state='free';}
@@ -224,8 +225,8 @@ function vrKnife(dt){
       const prevE=KN_EDGE.map(p=>p.clone().applyQuaternion(_kq).add(KN.pos));const nowE=KN_EDGE.map(p=>p.clone().applyQuaternion(_kq).add(cand));
       const pw=prevE.map(p=>boat.localToWorld(p)),nw=nowE.map(p=>boat.localToWorld(p));
       if(ev.e>0||cur.e>0){
-        const r=knifeSweep(pw,nw,{flat:false,chop:KN.boneOK>0||strike>10});
-        removedTotal+=r.removed;rib+=r.mats[M.RIB]||0;for(const k of [M.STOMACH,M.LIVER,M.GUT,M.ROE,M.GALL])organs+=r.mats[k]||0;if((r.mats[M.BONE]||0)>0)boneCut=true;
+        const r=cutStep(pw,nw,{chop:KN.boneOK>0||strike>10,vr:true});
+        removedTotal+=r.removed;rib+=r.mats[M.RIB]&&!KN.inRib?1:0;KN.inRib=!!r.mats[M.RIB];for(const k of [M.STOMACH,M.LIVER,M.GUT,M.ROE,M.GALL])organs+=r.mats[k]||0;if((r.mats[M.BONE]||0)>0&&(KN.boneOK>0||strike>10))boneCut=true;
         for(const k in ev.mm)if(!cutMat||ev.mm[k]>(ev.mm[cutMat]||0))cutMat=+k;
       }
       KN.pos.copy(cand);cur=ev;budget-=sub;
@@ -350,7 +351,7 @@ const raycaster=new THREE.Raycaster();
 const boardTopY=()=>fishRoot.getWorldPosition(V()).y;
 function boardPointer(){raycaster.setFromCamera(ptr.ndc,camera);const y=boardTopY()+(board.mode==='h'?board.hY:.02);const t=(y-raycaster.ray.origin.y)/raycaster.ray.direction.y;if(!(t>0))return null;return raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction,t);}
 function pieceMeshes(){const a=[];for(const it of pieceItems())it.obj.traverse(o=>{if(o.isMesh){o.userData.it=it;a.push(o);}});return a;}
-function hitUnderCursor(){raycaster.setFromCamera(ptr.ndc,camera);return raycaster.intersectObjects(pieceMeshes(),false)[0]||null;}
+function hitUnderCursor(){raycaster.setFromCamera(ptr.ndc,camera);for(const h of raycaster.intersectObjects(pieceMeshes(),false)){const ob=h.object.userData.vobj;if(!ob||ob.kind!=='fish')return h;if(ob.inside(ob.g.worldToLocal(h.point.clone())))return h;}return null;}
 function deskCutStart(e){
   if(e&&e.ctrlKey){const h=hitUnderCursor();if(h)mouseGrab(h.object.userData.it,h.point);return;}
   if(board.mode==='s'||board.mode==='sc')return;const p=boardPointer();if(p)desk.drag={a:p,b:p.clone(),na:ptr.ndc.clone(),nb:ptr.ndc.clone()};
@@ -400,10 +401,10 @@ function flipPiece(){
 function autoHeight(){
   let best=null,bv=0;for(const p of pieceItems().filter(onTable)){if(p.vobj.kind!=='fish')continue;if(p.body.mass>bv){bv=p.body.mass;best=p;}}
   if(!best)return;const ob=best.vobj;ob.g.updateMatrixWorld(true);fishRoot.updateMatrixWorld(true);const inv=fishRoot.matrixWorld.clone().invert();
-  let top=-1e9,anyBone=false,maxY=-1e9;const c=V();
-  for(let z=0;z<ob.nz;z++)for(let y=0;y<ob.ny;y++)for(let x=0;x<ob.nx;x++){const m=ob.m[ob.idx(x,y,z)];if(!m)continue;ob.center(x,y,z,c);c.applyMatrix4(ob.g.matrixWorld).applyMatrix4(inv);
-    if(c.y>maxY)maxY=c.y;if(m===M.BONE){anyBone=true;if(c.y>top)top=c.y;}}
-  board.hY=clamp(anyBone?top+ob.vs*.9:maxY*.5,.002,.3);
+  let top=-1e9,anyBone=false,maxY=-1e9;const c=V();const f=ob.fish;
+  for(let i=0;i<f.N;i++){if(!ob.keep[i])continue;c.set(f.pts[i*3],f.pts[i*3+1],f.pts[i*3+2]).applyMatrix4(ob.g.matrixWorld).applyMatrix4(inv);
+    if(c.y>maxY)maxY=c.y;if(f.mat[i]===M.BONE){anyBone=true;if(c.y>top)top=c.y;}}
+  board.hY=clamp(anyBone?top+.004:maxY*.5,.002,.3);
 }
 function updateDeskKnife(){
   hPlane.visible=S.view==='table'&&!renderer.xr.isPresenting&&board.mode==='h';hPlane.position.y=board.hY;
@@ -454,7 +455,7 @@ function endTrip(reason){
   const total=S.products.reduce((a,p)=>a+p.value,0);save.money+=Math.round(total);persist();if(total>0)sfx.coin();
   renderPort(reason,total);ui.hud.hidden=true;ui.port.hidden=false;if(renderer.xr.isPresenting)drawVRPanel(reason,total);
 }
-import { evaluate } from './voxel.js';
+import { evaluate } from './fishbody.js';
 function evaluateSafe(it){try{return evaluate(it.vobj);}catch(e){return null;}}
 function groupedProducts(){const m=new Map();for(const p of S.products){const k=p.sp.id+'|'+p.kind;const g=m.get(k)||{sp:p.sp,kind:p.kind,n:0,kg:0,value:0};g.n++;g.kg+=p.kg;g.value+=p.value;m.set(k,g);}return [...m.values()].sort((a,b)=>b.value-a.value);}
 function hintFor(s){return{mackerel:'стаи под чайками, блесна или воблер',perch:'средняя глубина, джиг',cod:'дайте джигу или донке лечь на дно',halibut:'донка на самом дне, когда начнёт штормить',tuna:'край шторма, воблер на быстрой проводке',eel:'сердце шторма, светящийся твистер'}[s.id];}
@@ -597,6 +598,7 @@ function frame(){
   syncItems();updateLinks();collect(dt);processSplits(dt);
   updateCamera(dt);updateRodLine(dt);updateAnims(dt);updateParts(dt);updateFloaters(dt);updateBirds(dt);
   audioUpdate(dt,(F.state==='hooked')?F.tension/lineStrength():0);updateHUD(dt);drawWrist(dt);
+  updateFishShading();
   hapFlush();
   renderer.render(scene,camera);
 }

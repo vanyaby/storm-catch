@@ -4,7 +4,7 @@ import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, pick, damp, save, pers
   RAIL, DECK_SPOT, HOLSTER, SPECIES, LU, LURES, lureModel, tackleSlots, hotspot, wind, waveH, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { CANNON, world } from './physics.js';
 import { items, registerTool, toHolster, HANDS, mainHand, offHand, addPiece, removeItem, handMatrixBoat, grabPiece, snapToHand } from './interact.js';
-import { newFish, buildFish } from './voxel.js';
+import { newFish, buildFish } from './fishbody.js';
 import { hapPulse, hapCont, hapBoth } from './haptics.js';
 import { buildHand, setCurls, POSES } from './hands.js';
 

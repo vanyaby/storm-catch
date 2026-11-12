@@ -3,8 +3,7 @@ import { THREE, S, V, UP, clamp, rand, damp, save, knifeMult, scene, camera, ren
   HOLSTER, DECK_SPOT, fishRoot, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { hapPulse, hapCont, hapBoth, bindHands } from './haptics.js';
 import { CANNON, world, G_STATIC, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
-import { M, carve, scrape, split, evaluate, massOf, matAt, sampler } from './voxel.js';
-const SKINS=[M.SKIN,M.SKIN2];
+import { M, evaluate, massOf, matAt, sampler, bodyShape, cutPiece, addNotch, nearPlane, inCavity } from './fishbody.js';
 
 export const items=[];          // everything a hand can take: {type:'piece'|'tool', obj, body, com, vobj?, tool?, heldBy, ...}
 export const links=[];          // organs hanging from an opened fish
@@ -12,21 +11,11 @@ const _m=new THREE.Matrix4(),_m2=new THREE.Matrix4(),_q=new THREE.Quaternion(),_
 
 /* ---------- bodies ---------- */
 function bodyFromVoxels(ob){
-  const N=Math.max(1,ob.count),vs=ob.vs;const b=clamp(Math.ceil(Math.cbrt(N/30)),1,18);
-  const bx=Math.ceil(ob.nx/b),by=Math.ceil(ob.ny/b),bz=Math.ceil(ob.nz/b);const cnt=new Int32Array(bx*by*bz);const com=V();const c=V();let n=0;
-  for(let z=0;z<ob.nz;z++)for(let y=0;y<ob.ny;y++)for(let x=0;x<ob.nx;x++){if(!ob.m[x+ob.nx*(y+ob.ny*z)])continue;cnt[((x/b)|0)+bx*(((y/b)|0)+by*((z/b)|0))]++;com.add(ob.center(x,y,z,c));n++;}
-  if(n)com.divideScalar(n);
-  const isOrgan=ob.kind==='organ';
-  const body=new CANNON.Body({mass:massOf(ob),collisionFilterGroup:isOrgan?G_ORGAN:G_PIECE,collisionFilterMask:isOrgan?G_STATIC:(G_STATIC|G_PIECE|G_TOOL),
+  const sh=bodyShape(ob);const isOrgan=ob.kind==='organ';
+  const body=new CANNON.Body({mass:sh.mass,collisionFilterGroup:isOrgan?G_ORGAN:G_PIECE,collisionFilterMask:isOrgan?G_STATIC:(G_STATIC|G_PIECE|G_TOOL),
     linearDamping:isOrgan?.45:.12,angularDamping:isOrgan?.5:.3,allowSleep:true,sleepSpeedLimit:.06,sleepTimeLimit:.6});
-  const thr=Math.max(1,b*b*b*.3);let shapes=0;
-  for(let z=0;z<bz;z++)for(let y=0;y<by;y++){let x=0;while(x<bx){
-    if(cnt[x+bx*(y+by*z)]<thr){x++;continue;}let xe=x;while(xe+1<bx&&cnt[xe+1+bx*(y+by*z)]>=thr)xe++;
-    const lo=V(ob.o.x+x*b*vs,ob.o.y+y*b*vs,ob.o.z+z*b*vs),hi=V(ob.o.x+Math.min(ob.nx,(xe+1)*b)*vs,ob.o.y+Math.min(ob.ny,(y+1)*b)*vs,ob.o.z+Math.min(ob.nz,(z+1)*b)*vs);
-    const h=hi.clone().sub(lo).multiplyScalar(.49),ctr=lo.add(hi).multiplyScalar(.5).sub(com);
-    body.addShape(new CANNON.Box(new CANNON.Vec3(Math.max(h.x,.004),Math.max(h.y,.004),Math.max(h.z,.004))),new CANNON.Vec3(ctr.x,ctr.y,ctr.z));shapes++;x=xe+1;}}
-  if(!shapes){const s=Math.max(vs,.01);body.addShape(new CANNON.Box(new CANNON.Vec3(s,s,s)));}
-  return {body,com};
+  for(const b of sh.boxes){const c=b.c.clone().sub(sh.com);body.addShape(new CANNON.Box(new CANNON.Vec3(b.h.x,b.h.y,b.h.z)),new CANNON.Vec3(c.x,c.y,c.z));}
+  return {body,com:sh.com};
 }
 function placeBody(it){
   const g=it.obj;if(g.parent!==boat)boat.attach(g);
@@ -115,7 +104,7 @@ function freeTool(it,vel,ang){
   if(!it.body.world)world.addBody(it.body);it.body.wakeUp();
 }
 export function setHi(it,on){
-  if(it.type==='piece')it.vobj.mat.emissive.setHex(on?0x3a2a10:0);
+  if(it.type==='piece')it.vobj.setHi(on);
   else for(const m of it.mats)m.emissive.setHex(on?0x5a4010:0);
 }
 
@@ -270,56 +259,75 @@ export function edgeMats(pts){
 }
 export { sampler };
 export function snapToHand(it,hpW){const pl=boat.worldToLocal(hpW.clone());it.obj.position.copy(pl).sub(it.com.clone().applyQuaternion(it.obj.quaternion));it.body.position.set(pl.x,pl.y,pl.z);it.body.velocity.setZero();}
-/* ---------- cutting ---------- */
-/* edge0/edge1: arrays of world points along the blade now and a moment ago */
-export function knifeSweep(edgePrev,edgeNow,opts){
-  const tris=[];for(let i=0;i<edgeNow.length-1;i++){const a0=edgePrev[i],b0=edgePrev[i+1],a1=edgeNow[i],b1=edgeNow[i+1];tris.push([a0,b0,b1],[a0,b1,a1]);}
-  const bb=new THREE.Box3();for(const p of edgePrev)bb.expandByPoint(p);for(const p of edgeNow)bb.expandByPoint(p);bb.expandByScalar(.02);
-  let total=0,bone=0,touched=[];const mats={};const addM=r=>{for(const k in r.mats)mats[k]=(mats[k]||0)+r.mats[k];};
+/* ---------- cutting ----------
+   A stroke is the path of the blade edge through one piece. When the swept surface covers the whole section of the piece,
+   the piece is split by the plane of the stroke; if the blade comes out before that, a notch (a slit) stays. */
+const strokes=new Map();
+const _mi=new THREE.Matrix4();
+function toLocal(it,pts){it.obj.updateMatrixWorld(true);_mi.copy(it.obj.matrixWorld).invert();return pts.map(p=>p.clone().applyMatrix4(_mi));}
+function openedMsg(ob){if(ob.open&&!ob.wasOpen){ob.wasOpen=true;msg('Брюхо вскрыто','Достаньте потроха рукой',1.8);sfx.squelch();S.fn.tut?.('open');}}
+/* one step of the blade: edge a moment ago and now (world points along the edge) */
+export function cutStep(eP,eN,opts={}){
+  const res={removed:0,bone:0,mats:{}};
+  const bb=new THREE.Box3();for(const p of eP)bb.expandByPoint(p);for(const p of eN)bb.expandByPoint(p);bb.expandByScalar(.02);
   for(const it of pieceItems()){
+    const ob=it.vobj;if(ob.kind!=='fish')continue;
     const box=new THREE.Box3().setFromObject(it.obj);if(!box.intersectsBox(bb))continue;
-    const res=cutObj(it.vobj,tris,{...opts,edge:edgeNow});if(res.removed){total+=res.removed;touched.push(it);}bone+=res.bone;addM(res);
-    for(const org of it.vobj.organs){const ob2=new THREE.Box3().setFromObject(org.g);if(ob2.intersectsBox(bb)){const r2=cutObj(org,tris,opts);addM(r2);total+=r2.removed;if(r2.removed&&!touched.includes(it))touched.push(it);}}
-  }
-  for(const it of touched)afterCut(it);
-  return {removed:total,bone,mats};
-}
-function cutObj(ob,tris,opts){
-  // a narrow kerf: the blade takes only what its edge actually passes through
-  const kerf=opts.kerf??(.56+.1*(knifeMult()-1)*3);   // >0.5 voxel guarantees the cut really separates
-  // flat blade never touches the meat: it only peels the skin layer it slides over
-  if(opts.flat){
-    // flat blade: cut only where the edge itself sits in the meat; sliding over the surface peels just the skin
-    let inSolid=0,inMeat=0;
-    const E=opts.edge||[],dense=[];for(let i=0;i<E.length-1;i++)for(let k=0;k<4;k++)dense.push(E[i].clone().lerp(E[i+1],k/4));if(E.length)dense.push(E[E.length-1]);
-    for(const p of dense){const m=matAt(ob,p);if(!m)continue;inSolid++;if(m!==M.SKIN&&m!==M.SKIN2&&m!==M.FIN)inMeat++;}
-    if(inMeat<2||inMeat<inSolid*.5)return carve(ob,tris,{kerf:kerf+.55,only:SKINS});
-  }
-  const res=carve(ob,tris,{kerf,chop:opts.chop});
-  if(res.removed){
-    const f=ob.fish;if(!f.bile&&((res.mats[M.GALL]||0)>0||(res.mats[M.STOMACH]||0)>2||(res.mats[M.GUT]||0)>2)){f.bile=true;msg('Задели потроха!','Желчь и содержимое попали на мясо, оно подешевеет',2.2);}
-    if(ob.open&&!ob.wasOpen){ob.wasOpen=true;msg('Брюхо вскрыто','Достаньте потроха рукой',1.8);sfx.squelch();S.fn.tut?.('open');}
+    const sm=sampler(ob);let inN=0,cav=false;
+    for(const p of eN){const m=sm(p);if(m){inN++;res.mats[m]=(res.mats[m]||0)+1;if(m===M.BONE)res.bone++;}else if(inCavity(ob,p))cav=true;}
+    for(const o of ob.organs){const so=sampler(o);for(const p of eN)if(so(p)){res.mats[o.organ]=(res.mats[o.organ]||0)+1;
+      if(!ob.fish.bile&&(o.organ===M.GALL||o.organ===M.STOMACH||o.organ===M.GUT)){ob.fish.bile=true;msg('Задели потроха!','Желчь и содержимое попали на мясо, оно подешевеет',2.2);}break;}}
+    let st=strokes.get(it);
+    if(!inN&&!cav&&!st)continue;
+    if(!st){st={quads:[],n:V(),pts:[],idle:0,chop:false};strokes.set(it,st);}
+    st.idle=0;if(opts.chop)st.chop=true;if(cav)st.cav=true;
+    const L=toLocal(it,[eP[0],eP[eP.length-1],eN[0],eN[eN.length-1]]);
+    const ed=L[3].clone().sub(L[2]),mv=L[2].clone().add(L[3]).sub(L[0]).sub(L[1]).multiplyScalar(.5);
+    const qn=ed.clone().cross(mv);
+    if(qn.lengthSq()>1e-12){if(st.n.lengthSq()>0&&qn.dot(st.n)<0)qn.negate();st.n.add(qn);}
+    if(mv.lengthSq()>1e-10){st.quads.push([L[0],L[1],L[3],L[2]]);st.pts.push(...L);}
+    res.removed+=inN;
+    if(tryFinish(it,st,false,opts))strokes.delete(it);
   }
   return res;
 }
-const pending=new Set();
-export function markCut(it){afterCut(it);}
-function afterCut(it){it.vobj.cut=true;it.vobj.flushMeshes();for(const o of it.vobj.organs)o.flushMeshes();pending.add(it);S.cutSound=1;}
-let splitT=0;
-export function processSplits(dt,force){
-  splitT-=dt;if(!pending.size||(splitT>0&&!force))return;splitT=.15;
-  for(const it of [...pending]){
-    pending.delete(it);if(!items.includes(it))continue;const ob=it.vobj;
-    for(const org of [...ob.organs]){if(org.splitPending){const parts=split(org);for(const p of parts){p.flushMeshes();ob.organs.push(p);ob.g.add(p.g);}if(org.count<=0){ob.organs.splice(ob.organs.indexOf(org),1);ob.g.remove(org.g);}}}
-    if(!ob.splitPending)continue;
-    const made=split(ob);ob.flushMeshes();
-    if(ob.count<=0){removeItem(it);boat.remove(ob.g);continue;}
-    const vel={v:it.body.velocity.clone(),w:it.body.angularVelocity.clone()};
-    for(const nb of made){nb.flushMeshes();boat.add(nb.g);nb.g.position.copy(ob.g.position);nb.g.quaternion.copy(ob.g.quaternion);
-      const nit=addPiece(nb,vel);if(nb.kind==='fish')S.fn.onPiece?.(nit);
-      // a piece cut out of a held fish falls; the hand keeps the bigger part
-    }
-    rebuildBody(it);
-    if(made.length){sfx.chop();S.fn.onSplit?.(it,made);}
-  }
+/* called once a frame: a stroke the blade has left is finished */
+export function cutFrame(force){
+  for(const [it,st] of [...strokes]){st.idle++;if(force||st.idle>3||!items.includes(it)){strokes.delete(it);if(items.includes(it))tryFinish(it,st,true,{});}}
 }
+function inTri2(p,a,b,c,eps){
+  const s1=(b.x-a.x)*(p.y-a.y)-(b.y-a.y)*(p.x-a.x),s2=(c.x-b.x)*(p.y-b.y)-(c.y-b.y)*(p.x-b.x),s3=(a.x-c.x)*(p.y-c.y)-(a.y-c.y)*(p.x-c.x);
+  if((s1>=0&&s2>=0&&s3>=0)||(s1<=0&&s2<=0&&s3<=0))return true;
+  const seg=(u,v)=>{const dx=v.x-u.x,dy=v.y-u.y,l=dx*dx+dy*dy||1e-12;const t=clamp(((p.x-u.x)*dx+(p.y-u.y)*dy)/l,0,1);return Math.hypot(p.x-u.x-dx*t,p.y-u.y-dy*t);};
+  return seg(a,b)<eps||seg(b,c)<eps||seg(c,a)<eps;
+}
+function tryFinish(it,st,final,opts){
+  const ob=it.vobj;if(!st.quads.length||st.n.lengthSq()<1e-14)return final;
+  const n=st.n.clone().normalize();let c=0;for(const p of st.pts)c+=n.dot(p);c/=st.pts.length;
+  const near=nearPlane(ob,n,c,.006);
+  const u=Math.abs(n.x)<.9?V(1,0,0):V(0,1,0);u.sub(n.clone().multiplyScalar(u.dot(n))).normalize();const w=n.clone().cross(u);
+  const P2=p=>new THREE.Vector2(p.dot(u),p.dot(w));
+  const Q=st.quads.map(q=>q.map(P2));
+  let inside=0,boneHit=false;const f=ob.fish;
+  for(const p of near){const p2=P2(p);if(Q.some(q=>inTri2(p2,q[0],q[1],q[2],.004)||inTri2(p2,q[0],q[2],q[3],.004)))inside++;}
+  if(!st.chop&&!opts.vr){for(let i=0;i<f.N;i++){if(!ob.keep[i]||f.mat[i]!==M.BONE)continue;const x=f.pts[i*3],y=f.pts[i*3+1],z=f.pts[i*3+2];if(Math.abs(n.x*x+n.y*y+n.z*z-c)<.002){const p2=P2(V(x,y,z));if(Q.some(q=>inTri2(p2,q[0],q[1],q[2],0)||inTri2(p2,q[0],q[2],q[3],0))){boneHit=true;break;}}}}
+  const cover=near.length?inside/near.length:0;
+  if(near.length&&cover>=.96&&!boneHit){
+    const nb=cutPiece(ob,n,c);
+    if(nb){const vel={v:it.body.velocity.clone(),w:it.body.angularVelocity.clone()};boat.add(nb.g);const nit=addPiece(nb,vel);S.fn.onPiece?.(nit);rebuildBody(it);
+      sfx.chop();S.cutSound=1;S.fn.onSplit?.(it,[nb]);openedMsg(ob);openedMsg(nb);
+      // the hand keeps the part it is holding; nothing else changes
+    }
+    return true;
+  }
+  if(final){
+    if(inside>0||st.cav){const ctr=V();for(const p of st.pts)ctr.add(p);ctr.divideScalar(st.pts.length);let r=0;for(const p of st.pts)r=Math.max(r,p.distanceTo(ctr));
+      addNotch(ob,n,c,ctr,r+.004);if(st.cav)ob.open=true;ob.flushMeshes();openedMsg(ob);S.cutSound=.8;}
+    return true;
+  }
+  return false;
+}
+/* the desktop knife: one straight sweep, finished at once */
+export function knifeSweep(edgePrev,edgeNow,opts={}){const r=cutStep(edgePrev,edgeNow,opts);cutFrame(true);return r;}
+export function markCut(it){it.vobj.cut=true;it.vobj.flushMeshes();S.cutSound=1;}
+export function processSplits(){}
