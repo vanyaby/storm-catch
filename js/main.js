@@ -151,7 +151,7 @@ function vrButtons(dt){
   for(const h of Object.values(HANDS)){if(!h||!h.src||!h.src.gamepad)continue;const g=h.src.gamepad;
     const a=!!(g.buttons[4]&&g.buttons[4].pressed),b=!!(g.buttons[5]&&g.buttons[5].pressed);
     if(S.gameState==='port'){if(a&&!h.prev.a)startTrip();h.prev.a=a;continue;}
-    if(a&&!h.prev.a)clearBoard();h.prev.a=a;
+    if(a&&!h.prev.a&&!rodInHand())clearBoard();h.prev.a=a;
     if(b){h.bHeld=(h.bHeld||0)+dt;if(h.bHeld>1.5){h.bHeld=-99;endTrip('home');}}else h.bHeld=0;}
 }
 /* knife cutting in VR */

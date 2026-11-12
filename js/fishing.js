@@ -300,6 +300,8 @@ function releaseNetted(){const n=F.netted;if(!n)return null;F.netted=null;const 
 
 /* ---------- reel: crank by hand, loads up under strain ---------- */
 export const crank={held:false,hand:null,prevA:0,prevQ:null,acc:0,rate:0,angle:0};
+// the point between the thumb and the index finger
+function pinchPoint(h){return h.hand?h.hand.root.localToWorld(V(.024,-.012,-.1)):h.grip.getWorldPosition(V());}
 function crankHandAngle(hp){const l=rod.crank.parent.worldToLocal(hp.clone()).sub(rod.crank.position);return Math.atan2(l.y,-l.z);}
 S.fn.handGrabSpecial=h=>{
   const hp=h.grip.getWorldPosition(V());const rh=rodHand();
@@ -309,7 +311,7 @@ S.fn.handGrabSpecial=h=>{
   if(F.dangle&&h!==rh){const it=F.dangle.it;const fp=it.obj.localToWorld(it.com.clone());if(hp.distanceTo(fp)<.5){snapToHand(it,hp);grabPiece(h,it);return true;}}
   if(rh&&rh!==h&&save.reelMode==='hand'&&hp.distanceTo(rod.knob.getWorldPosition(V()))<.15){
     crank.held=true;crank.hand=h;h.crank=true;crank.prevA=crankHandAngle(hp);crank.prevQ=h.grip.getWorldQuaternion(new THREE.Quaternion());
-    h.mitt&&(h.mitt.visible=false);rod.knobHand.visible=true;hapPulse(h,.3,30);S.fn.tut?.('crank');return true;}
+    crank.prevA=crankHandAngle(pinchPoint(h));crank.vis=crank.prevA;crank.off=crank.angle-crank.prevA;hapPulse(h,.3,30);S.fn.tut?.('crank');return true;}
   if(F.netted&&!(netItem.heldBy===h)){const b=new THREE.Box3().setFromObject(F.netted.ob.g).expandByScalar(.06);if(b.containsPoint(hp)){const it=releaseNetted();if(it){grabPiece(h,it);return true;}}}
   if(F.state==='ready'){
     const end=rope.p[ROPE_N-1];
@@ -327,17 +329,17 @@ S.fn.onRelease=(it,h)=>{if(it===netItem&&F.netted)releaseNetted();};
 function updateCrank(dt){
   const h=crank.hand;if(!crank.held||!h)return;
   const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const hp=h.grip.getWorldPosition(V());
-  if(!sq||!rodHand()||hp.distanceTo(rod.knob.getWorldPosition(V()))>.3){crank.held=false;h.crank=false;h.prevSq=sq;h.mitt&&(h.mitt.visible=true);rod.knobHand.visible=false;return;}
-  const a=crankHandAngle(hp);let da=a-crank.prevA;if(da>Math.PI)da-=TAU;if(da<-Math.PI)da+=TAU;crank.prevA=a;
-  const q=h.grip.getWorldQuaternion(new THREE.Quaternion());const dq=q.clone().multiply(crank.prevQ.clone().invert());crank.prevQ=q;
-  const ax=V(1,0,0).applyQuaternion(rod.crank.parent.getWorldQuaternion(new THREE.Quaternion()));const proj=dq.x*ax.x+dq.y*ax.y+dq.z*ax.z;let tw=2*Math.atan2(proj,dq.w);if(tw>Math.PI)tw-=TAU;if(tw<-Math.PI)tw+=TAU;
-  let d=Math.abs(da)>Math.abs(tw)?da:tw;
+  if(!sq||!rodHand()||hp.distanceTo(rod.knob.getWorldPosition(V()))>.3){crank.held=false;h.crank=false;h.prevSq=sq;return;}
+  const a=crankHandAngle(pinchPoint(h));let da=a-crank.prevA;if(da>Math.PI)da-=TAU;if(da<-Math.PI)da+=TAU;crank.prevA=a;
+  let d=da;
+  crank.off=(crank.off||0)*Math.exp(-6*dt);                     // the knob slides onto the fingers, then sticks to them
+  crank.vis=(crank.vis??crank.angle)+da;
   // first turn snaps the bail shut
   if(F.bail==='open'&&Math.abs(d)>.05){setBail(false);if(F.state==='water'||F.state==='flying')msg('Дужка закрыта','',.8);}
   // under strain the handle gets heavy; when the drag is slipping it barely moves
   const fight=F.state==='hooked'||F.state==='landing';const load=fight?clamp(F.tension/F.drag,0,1):0;
   const who=h===mainHand()?'main':'off';
-  d*=1-.7*load;crank.angle+=d;crank.rate=damp(crank.rate,Math.abs(d)/Math.max(dt,1e-3),10,dt);crank.acc+=Math.abs(d);
+  d*=1-.7*load;crank.angle=crank.vis+crank.off;crank.rate=damp(crank.rate,Math.abs(d)/Math.max(dt,1e-3),10,dt);crank.acc+=Math.abs(d);
   if(crank.acc>Math.PI/4){crank.acc=0;sfx.click(.07+load*.08);hapPulse(h,.15+load*.45,10+load*25);}
   if(fight&&load>.97&&Math.random()<dt*20)hapPulse(h,.6,15);
 }
@@ -418,6 +420,15 @@ export function fishingVR(dt){
     const gp=rh.src&&rh.src.gamepad;const trig=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.5);
     if(save.reelMode==='hand')F.reel=crank.held&&F.bail==='closed'?clamp(crank.rate/(TAU*1.5),0,1.2):0;
     else{const o=offHand();const og=o&&o.src&&o.src.gamepad;F.reel=og&&og.buttons[0]?og.buttons[0].value:0;if(F.reel>.1&&F.bail==='open')setBail(false);}
+    // A or X held: the line runs free off the spool (to let the lure down or pull it to you to change it)
+    let free=false;for(const k of ['left','right']){const hh=HANDS[k];const g2=hh&&hh.src&&hh.src.gamepad;if(g2&&g2.buttons[4]&&g2.buttons[4].pressed)free=true;}
+    if(F.state==='ready'){
+      if(free&&!F.lineFree){F.lineFree=true;setBail(true);msg('Леска свободна','Отпустите кнопку — леска встанет',1.2);}
+      if(!free&&F.lineFree){F.lineFree=false;setBail(false);}
+      if(F.lineFree){const pull=F.lureHold?tipW(V()).distanceTo(F.lureHold.grip.getWorldPosition(V())):0;
+        const before=F.line;F.line=Math.min(2.6,Math.max(F.line+dt*(.6+LU[F.lureId].mass*.01),pull));
+        F.clickAcc+=F.line-before;if(F.clickAcc>.08){F.clickAcc=0;rod.spool.rotation.y+=.6;hapPulse(rh,.12,8);}}
+    }else if(F.lineFree){F.lineFree=false;}
     // finger on the line: press = open the bail and pin the line; let go mid-swing = the lure flies
     if(trig&&!trigPrev&&F.state==='ready'){if(!F.hasLure)msg('Нет приманки','Возьмите её из ящика с приманками',1.6);else{setBail(true);F.state='wind';F.charge=0;}}
     if(F.state==='wind'){
