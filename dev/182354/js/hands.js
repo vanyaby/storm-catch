@@ -79,7 +79,8 @@ export function animateHand(h,dt){
     else target=POSES.piece;
   }else{
     // free hand: fingers follow the buttons
-    const sq=gp&&gp.buttons[1]?gp.buttons[1].value:0,tr=gp&&gp.buttons[0]?gp.buttons[0].value:0;
+    const bv=i=>{const b=gp&&gp.buttons[i];return b?(typeof b.value==='number'?b.value:(b.pressed?1:0)):0;};
+    const sq=bv(1),tr=bv(0);
     const th=gp&&gp.buttons.some((b,i)=>i>=3&&(b.touched||b.pressed))?0.15:0.55;
     const open=POSES.reach,rest=POSES.rest;
     const base=h.hover?open:rest;
@@ -87,7 +88,7 @@ export function animateHand(h,dt){
     target[0]=clamp(base[0]*.4+.45*sq+(th<.3?-.05:.1),0,1);
   }
   const k=1-Math.exp(-16*dt);
-  for(let i=0;i<5;i++)hand.cur[i]+=(target[i]-hand.cur[i])*k;
+  for(let i=0;i<5;i++){if(!isFinite(hand.cur[i]))hand.cur[i]=0;const t=isFinite(target[i])?target[i]:0;hand.cur[i]+=(t-hand.cur[i])*k;}
   setCurls(hand,hand.cur);
 }
 const lerpv=(a,b,t)=>a+(b-a)*t;
