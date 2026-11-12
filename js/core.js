@@ -20,7 +20,7 @@ export const S={T:0,AMP:.18,storm:.05,rainI:0,flashT:0,gameState:'menu',view:'se
 
 /* ---------------- save + upgrades ---------------- */
 const SAVE_KEY='storm-catch-v1';
-export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0,detail:'high',hapticGain:1,eyeOff:0};
+export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0,detail:'high',hapticGain:1,eyeOff:0,tags:'hover',castAssist:.5};
 try{const s=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');if(s)save=Object.assign(save,s);}catch(e){}
 export function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save));}catch(e){}}
 export const UPG={
@@ -114,7 +114,7 @@ export const sky=new THREE.Mesh(new THREE.SphereGeometry(900,24,14),new THREE.Sh
 }));
 sky.renderOrder=-10;scene.add(sky);
 const seaU={uT:{value:0},uA:{value:.2},uDeep:{value:new THREE.Color()},uCrest:{value:new THREE.Color()},uFoam:{value:0}};
-const seaMat=new THREE.MeshStandardMaterial({color:0xffffff,flatShading:true,roughness:.55,metalness:.05});
+const seaMat=new THREE.MeshStandardMaterial({color:0xffffff,flatShading:true,roughness:.55,metalness:.05,transparent:true,opacity:.72});
 seaMat.onBeforeCompile=sh=>{
   Object.assign(sh.uniforms,seaU);
   sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nuniform float uT;uniform float uA;varying float vH;\n'+GLSL_WAVE)
@@ -180,7 +180,7 @@ export const ICE=new THREE.Group();ICE.position.set(1.28,0,.78);boat.add(ICE);
   const m=Mat(0x3d7f9a);const body=new THREE.Mesh(new THREE.BoxGeometry(.56,.62,.5),m);body.position.y=.31;ICE.add(body);
   const inner=new THREE.Mesh(new THREE.BoxGeometry(.5,.02,.44),Mat(0xe6f3f6,{roughness:.3}));inner.position.y=.6;ICE.add(inner);
   for(let i=0;i<10;i++){const c=new THREE.Mesh(new THREE.BoxGeometry(.06,.05,.06),Mat(0xd8f0f6,{roughness:.2,transparent:true,opacity:.9}));c.position.set(rand(-.2,.2),.62,rand(-.18,.18));c.rotation.set(rand(0,1),rand(0,1),0);ICE.add(c);}
-  const lid=new THREE.Mesh(new THREE.BoxGeometry(.58,.05,.52),m);lid.position.set(.3,.85,0);lid.rotation.z=-1.25;ICE.add(lid);
+  ICE.userData.mat=m;
 }
 export const iceContent=new THREE.Group();iceContent.position.y=.64;ICE.add(iceContent);
 export const BUCKET=new THREE.Group();BUCKET.position.set(.62,0,-.98);boat.add(BUCKET);

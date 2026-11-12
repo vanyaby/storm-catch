@@ -118,11 +118,15 @@ export function grabPiece(h,it){
   S.fn.onGrabPiece?.(it,h);
   h.held=it;it.heldBy=it.heldBy||h;setHi(it,false);it.body.wakeUp();
   const other=Object.values(HANDS).find(o=>o&&o!==h&&o.held===it);
-  const light=it.body.mass<=12||other;
+  const light=(it.body.mass<=6||other)&&!h.pinch;
   // remember where the piece sits relative to the hand
   const hm=handMatrixBoat(h,new THREE.Matrix4());it.obj.updateMatrix();h.offset=new THREE.Matrix4().multiplyMatrices(hm.clone().invert(),it.obj.matrix);
   if(light){it.kinematic=true;it.body.type=CANNON.Body.KINEMATIC;it.body.updateMassProperties();it.body.velocity.setZero();it.body.angularVelocity.setZero();}
+  else if(h.pinch){it.kinematic=false;regrab(h);}
   else{it.kinematic=false;regrab(h);msg('Тяжёлая рыба','Возьмите второй рукой, чтобы поднять',1.4);}
+  if(other&&light&&!other.offset){}
+  // the second hand turns a dragged heavy fish into a lifted one
+  if(other&&light){if(other.p2p){world.removeConstraint(other.p2p);other.p2p=null;}const hm2=handMatrixBoat(other,new THREE.Matrix4());it.obj.updateMatrix();other.offset=new THREE.Matrix4().multiplyMatrices(hm2.invert(),it.obj.matrix);}
   sfx.pick();hapPulse(h,.4,30);
   if(it.vobj&&it.vobj.open&&it.vobj.organs.length)setTimeout(()=>{if(it.heldBy)spillOrgans(it);},350);
 }
@@ -135,9 +139,14 @@ function regrab(h){
 function handVel(h){const hs=h.hist;if(hs.length<2)return V();const a=hs[0],b=hs[hs.length-1];const dt=b.t-a.t;return dt>1e-3?b.p.clone().sub(a.p).divideScalar(dt):V();}
 function dropHeld(h,silent){
   const it=h.held;if(!it)return;h.held=null;
+  if(h.second){h.second=false;h.tw=null;return;}
   if(h.p2p){world.removeConstraint(h.p2p);h.p2p=null;}
+  if(it.type==='tool'){const o=Object.values(HANDS).find(x=>x&&x!==h&&x.held===it&&x.second);
+    if(o){o.second=false;o.tw=null;it.heldBy=o;o.grip.attach(it.obj);return;}}
   const still=Object.values(HANDS).find(o=>o&&o!==h&&o.held===it);
-  if(still){it.heldBy=still;const hm=handMatrixBoat(still,new THREE.Matrix4());it.obj.updateMatrix();still.offset=new THREE.Matrix4().multiplyMatrices(hm.clone().invert(),it.obj.matrix);return;}
+  if(still){it.heldBy=still;const hm=handMatrixBoat(still,new THREE.Matrix4());it.obj.updateMatrix();still.offset=new THREE.Matrix4().multiplyMatrices(hm.clone().invert(),it.obj.matrix);
+    if(it.body&&it.body.mass>6&&it.kinematic){it.kinematic=false;it.body.type=CANNON.Body.DYNAMIC;it.body.updateMassProperties();it.body.wakeUp();regrab(still);}
+    return;}
   it.heldBy=null;
   const v=handVel(h).clampLength(0,6),w=h.angVel?h.angVel.clone().clampLength(0,10):V();
   if(it.type==='tool'){
@@ -157,7 +166,7 @@ function localBox(obj){
 function nearestFor(h){
   const hp=h.grip.getWorldPosition(V());let best=null,bd=1e9;
   for(const it of items){
-    if(it.heldBy&&it.type==='tool')continue;
+    if(it.heldBy&&it.type==='tool'&&(it.heldBy===h||it.follow||h.held))continue;
     if(it.type==='tool'){   // any point of the tool: the hand is tested against its own shape, not just the handle
       if(!it.lbox)it.lbox=localBox(it.obj);
       const d=it.lbox.distanceToPoint(it.obj.worldToLocal(hp.clone()));
@@ -174,33 +183,46 @@ export function updateHand(h,dt,gp){
   if(!h)return;const now=performance.now()/1000;const hp=boat.worldToLocal(h.grip.getWorldPosition(V()));
   h.hist=h.hist||[];h.hist.push({t:now,p:hp.clone()});while(h.hist.length>5)h.hist.shift();
   const q=h.grip.getWorldQuaternion(new THREE.Quaternion());if(h.prevQ){const dq=q.clone().multiply(h.prevQ.clone().invert());const ang=2*Math.acos(clamp(dq.w,-1,1));const ax=V(dq.x,dq.y,dq.z);if(ax.lengthSq()>1e-8)ax.normalize();h.angVel=ax.multiplyScalar((ang>Math.PI?ang-2*Math.PI:ang)/Math.max(dt,1e-3));}h.prevQ=q;
-  const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);
-  if(h.crank){h.prevSq=sq;return;}                       // the reel owns this hand while cranking
+  const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed),tr=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6);
+  if(h.crank||h.lid){h.prevSq=sq;h.prevTr=tr;return;}            // the reel owns this hand while cranking
+  const grabEdge=!h.held&&((sq&&!h.prevSq)?'sq':(tr&&!h.prevTr)?'tr':null);
   if(!h.held){
     const n=nearestFor(h);const cand=n&&n.type!=='organIn'?n:null;
     if(cand!==h.hover){if(h.hover&&h.hover.type)setHi(h.hover,false);h.hover=cand;if(cand){setHi(cand,true);hapPulse(h,.12,12);}}
-    if(sq&&!h.prevSq&&!S.fn.handGrabSpecial?.(h)){
+    if(grabEdge){h.grabBtn=grabEdge;h.pinch=grabEdge==='tr';}
+    if(grabEdge&&!S.fn.handGrabSpecial?.(h)){
       if(n&&n.type==='organIn'){const it=releaseOrgan(n.fish,n.org,false);if(it){sfx.squelch();grabPiece(h,it);}}
-      else if(n&&n.type==='tool'){h.held=n;n.heldBy=h;setHi(n,false);if(n.body.world)world.removeBody(n.body);n.inHolster=false;
+      else if(n&&n.type==='tool'&&n.heldBy&&n.heldBy!==h&&!n.follow){
+        // a second hand on a tool: the tool turns around the first hand toward the second one
+        const g1=n.heldBy.grip;h.held=n;h.second=true;h.tw={a:g1.worldToLocal(h.grip.getWorldPosition(V())),q0:n.obj.quaternion.clone(),p0:n.obj.position.clone()};
+        sfx.pick();hapPulse(h,.35,25);}
+      else if(n&&n.type==='tool'&&!n.heldBy){h.held=n;n.heldBy=h;setHi(n,false);if(n.body.world)world.removeBody(n.body);n.inHolster=false;
         // taken exactly as it lies relative to the hand: no snapping to a fixed grip
         if(n.follow){boat.attach(n.obj);n.obj.updateMatrix();n.offset=new THREE.Matrix4().multiplyMatrices(handMatrixBoat(h,new THREE.Matrix4()).invert(),n.obj.matrix);}
         else h.grip.attach(n.obj);
         sfx.pick();hapPulse(h,.4,30);S.fn.onToolGrab?.(n,h);}
-      else if(n)grabPiece(h,n);
+      else if(n&&n.type!=='tool'){
+        if(h.pinch&&n.body&&n.body.mass>1.5){msg('Пальцами не удержать','Возьмите всей рукой — боковой кнопкой',1.4);hapPulse(h,.2,20);}
+        else grabPiece(h,n);}
     }
-  }else if(!sq&&h.prevSq){const it=h.held;dropHeld(h);S.fn.onRelease?.(it,h);}
+  }else if((h.grabBtn==='tr'?(!tr&&h.prevTr):(!sq&&h.prevSq))){const it=h.held;dropHeld(h);S.fn.onRelease?.(it,h);}
+  // second hand on a tool
+  if(h.second&&h.held&&h.held.heldBy&&h.held.heldBy!==h){const it2=h.held,g1=it2.heldBy.grip;const b=g1.worldToLocal(h.grip.getWorldPosition(V()));
+    if(h.tw.a.lengthSq()>1e-6&&b.lengthSq()>1e-6){const q=new THREE.Quaternion().setFromUnitVectors(h.tw.a.clone().normalize(),b.normalize());it2.obj.quaternion.copy(q).multiply(h.tw.q0);it2.obj.position.copy(h.tw.p0).applyQuaternion(q);}}
   // held pieces follow the hand exactly
   const it=h.held;
   if(it&&it.type==='piece'&&it.heldBy===h){
     if(it.kinematic){
       const hm=handMatrixBoat(h,_m);const tm=_m2.multiplyMatrices(hm,h.offset);const pos=V(),quat=new THREE.Quaternion(),sc=V();tm.decompose(pos,quat,sc);
+      const o2=Object.values(HANDS).find(o=>o&&o!==h&&o.held===it&&o.offset);
+      if(o2){const tm2=new THREE.Matrix4().multiplyMatrices(handMatrixBoat(o2,new THREE.Matrix4()),o2.offset);const p2=V(),q2=new THREE.Quaternion();tm2.decompose(p2,q2,sc);pos.lerp(p2,.5);quat.slerp(q2,.5);}
       it.obj.position.copy(pos);it.obj.quaternion.copy(quat);
       const cp=it.com.clone().applyQuaternion(quat).add(pos);const b=it.body;const k=1/Math.max(dt,1e-3);
       b.velocity.set((cp.x-b.position.x)*k,(cp.y-b.position.y)*k,(cp.z-b.position.z)*k);b.position.set(cp.x,cp.y,cp.z);b.quaternion.set(quat.x,quat.y,quat.z,quat.w);
     }else if(h.kin){const k=1/Math.max(dt,1e-3);h.kin.velocity.set((hp.x-h.kin.position.x)*k,(hp.y-h.kin.position.y)*k,(hp.z-h.kin.position.z)*k);h.kin.position.set(hp.x,hp.y,hp.z);}
     h.wt=(h.wt||0)-dt;if(h.wt<=0){h.wt=.2;hapPulse(h,clamp(.06+it.body.mass/20,.06,.7),40);}
   }
-  h.prevSq=sq;
+  h.prevSq=sq;h.prevTr=tr;
 }
 
 /* ---------- desktop mouse: Ctrl + drag lifts a piece ---------- */
@@ -237,7 +259,7 @@ export function collect(dt){
   for(const it of [...items]){
     if(it.heldBy||mouse.it===it||!it.body||!it.body.world)continue;const p=it.body.position;
     if(it.type==='tool'){if(p.y<-.3||Math.abs(p.z)>3||p.x<-5||p.x>6){toHolster(it);msg('Инструмент на месте','Упал за борт, вернули в держатель',1.4);}continue;}
-    if(Math.abs(p.x-ICE.position.x)<.27&&Math.abs(p.z-ICE.position.z)<.24&&p.y<.95&&p.y>.3){toIce(it);continue;}
+    if(S.iceOpen!==false&&Math.abs(p.x-ICE.position.x)<.27&&Math.abs(p.z-ICE.position.z)<.24&&p.y<.95&&p.y>.3){toIce(it);continue;}
     if(Math.hypot(p.x-BUCKET.position.x,p.z-BUCKET.position.z)<.17&&p.y<.5){toBucket(it);continue;}
     if(p.y<-.3||Math.abs(p.z)>3||p.x<-5||p.x>6){
       const w=it.obj.getWorldPosition(V());splash(w,10,2.5,.8);sfx.splash(.6);

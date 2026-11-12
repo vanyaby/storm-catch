@@ -67,11 +67,12 @@ const TOOL_POSE={rod:'rod',knife:'knife',scaler:'scaler',net:'net'};
 /* every frame: choose a pose and ease the fingers to it */
 export function animateHand(h,dt){
   const hand=h.hand;if(!hand)return;
-  hand.root.visible=h.crank||(!h.held&&!h.heldLure);
+  hand.root.visible=true;
   const gp=h.src&&h.src.gamepad;
   let target;
   if(h.crank){/* the free hand is drawn on the reel handle by fishing.js */target=POSES.crank;}
   else if(h.heldLure||h.lureHold)target=POSES.lure;
+  else if(h.held&&h.pinch)target=POSES.lure;
   else if(h.held){
     const it=h.held;
     if(it.type==='tool')target=(it.tool==='rod'&&h.fingerLine)?POSES.rodLine:POSES[TOOL_POSE[it.tool]||'rod'];

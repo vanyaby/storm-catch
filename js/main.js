@@ -2,28 +2,40 @@
 import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, damp, fmtKg, save, persist, UPG, lineStrength, knifeMult, SPECIES, SP, LURES, LU,
   renderer, scene, camera, rig, boat, TABLE, ICE, fishRoot, hPlane, PLAYER, DECK_SPOT, HOLSTER, Mat, ui, msg, setHint, resetHint, tickMsg, vrMsg,
   sfx, audioInit, audioUpdate, AU, splash, label, updateParts, updateFloaters, updateBirds, updateEnv, updateAnims, clearAnims, fly, iceContent, bucketContent } from './core.js';
-import { CANNON, world } from './physics.js';
+import { CANNON, world, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
 import { M, newFish, buildFish, scrape, descale, sampler, updateFishShading } from './fishbody.js';
 import { items, pieceItems, addPiece, removeItem, registerTool, toHolster, HANDS, mainHand, offHand, updateHand, syncItems, updateLinks,
   collect, processSplits, knifeSweep, cutStep, cutFrame, markCut, releaseOrgan, toIce, toBucket, onTable, boatPos, mouse, mouseGrab, mouseRelease, updateMouseGrab, links, edgeMats, handMatrixBoat } from './interact.js';
 import { hapPulse, hapCont, hapBoth, hapFlush, hapLog } from './haptics.js';
 import { buildHand, animateHand } from './hands.js';
+import { updateTags } from './tags.js';
+import { updateSchools } from './schools.js';
 import { F, rod, rodItem, net, netItem, setCrankSide, setLureModel, tieLure, rodToDesk, rodOffDesk, rodInHand, deskHand, updateDeskRod, deskCast,
   fishingVR, updateFishing, updateRodLine, tryHook, liftOrNet, resetFishing, crank, forceHook } from './fishing.js';
 
 /* ---------- knife ---------- */
-const bevelMat=Mat(0xf2f5f8,{metalness:1,roughness:.12});
+const bevelMat=new THREE.MeshStandardMaterial({color:0xf2f5f8,metalness:1,roughness:.12,side:THREE.DoubleSide});
+/* a fillet knife: long narrow curved blade with a ground edge, black handle, steel bolster, two rivets */
 function buildKnife(){
   const g=new THREE.Group();
-  const h=new THREE.Mesh(new THREE.BoxGeometry(.024,.026,.12),Mat(0x5a3a22));h.position.z=.065;g.add(h);
-  for(const z of [.03,.1]){const r=new THREE.Mesh(new THREE.CylinderGeometry(.004,.004,.026,5),Mat(0xc9c9c9,{metalness:.8}));r.rotation.z=Math.PI/2;r.position.set(0,0,z);g.add(r);}
-  const s=new THREE.Shape();s.moveTo(0,.011);s.lineTo(.19,.006);s.lineTo(.235,-.006);s.lineTo(.2,-.02);s.lineTo(0,-.022);s.lineTo(0,.011);
-  const bg=new THREE.ExtrudeGeometry(s,{depth:.0025,bevelEnabled:false});bg.rotateY(Math.PI/2);bg.translate(-.0012,0,0);
-  g.add(new THREE.Mesh(bg,Mat(0xaeb4b8,{metalness:.8,roughness:.3})));
-  // the cutting side is the bottom edge: a bright ground bevel. the spine on top is thick and dark.
-  const bevel=new THREE.Mesh(new THREE.BoxGeometry(.0034,.0052,.205),bevelMat);bevel.position.set(0,-.0192,-.1);g.add(bevel);
-  const bev2=new THREE.Mesh(new THREE.BoxGeometry(.0038,.0016,.03),bevelMat);bev2.position.set(0,-.016,-.212);bev2.rotation.x=.7;g.add(bev2);
-  const spine=new THREE.Mesh(new THREE.BoxGeometry(.0058,.0042,.2),Mat(0x30363a,{metalness:.5,roughness:.55}));spine.position.set(0,.0095,-.1);g.add(spine);
+  const steel=new THREE.MeshStandardMaterial({color:0xb7bdc2,metalness:.9,roughness:.28});
+  // blade profile in (length, height): spine on top, edge below, rising into the tip
+  const s=new THREE.Shape();s.moveTo(0,.0095);s.lineTo(.15,.0078);s.quadraticCurveTo(.214,.006,.236,-.0095);
+  s.quadraticCurveTo(.222,-.0185,.19,-.0205);s.lineTo(0,-.021);s.lineTo(0,.0095);
+  const bg=new THREE.ExtrudeGeometry(s,{depth:.0014,bevelEnabled:true,bevelThickness:.0005,bevelSize:.0004,bevelSegments:2,curveSegments:18});
+  bg.rotateY(Math.PI/2);bg.translate(-.0007,0,0);g.add(new THREE.Mesh(bg,steel));
+  // the ground edge: a bright strip on both faces along the cutting side
+  const e=new THREE.Shape();e.moveTo(.002,-.0209);e.lineTo(.19,-.0204);e.quadraticCurveTo(.221,-.0182,.234,-.0098);e.lineTo(.229,-.0078);
+  e.quadraticCurveTo(.216,-.0142,.188,-.0158);e.lineTo(.002,-.0163);e.lineTo(.002,-.0209);
+  const eg=new THREE.ShapeGeometry(e,16);eg.rotateY(Math.PI/2);
+  for(const x of [.00118,-.00118]){const m=new THREE.Mesh(eg,bevelMat);m.position.x=x;g.add(m);}
+  // handle
+  const hm=new THREE.MeshStandardMaterial({color:0x232527,roughness:.62,metalness:.05});
+  const hg=new THREE.CapsuleGeometry(.0112,.088,6,14);hg.rotateX(Math.PI/2);hg.scale(.82,1,1);const h=new THREE.Mesh(hg,hm);h.position.z=.071;g.add(h);
+  const bol=new THREE.Mesh(new THREE.CylinderGeometry(.0118,.0108,.013,16),steel);bol.rotation.x=Math.PI/2;bol.scale.set(.85,1,1);bol.position.z=.0105;g.add(bol);
+  const guard=new THREE.Mesh(new THREE.BoxGeometry(.011,.008,.007),steel);guard.position.set(0,-.0145,.012);g.add(guard);
+  for(const z of [.048,.096]){const r=new THREE.Mesh(new THREE.CylinderGeometry(.0027,.0027,.0205,10),steel);r.rotation.z=Math.PI/2;r.position.set(0,0,z);g.add(r);}
+  const cap=new THREE.Mesh(new THREE.SphereGeometry(.0095,12,8),steel);cap.scale.set(.82,1,.5);cap.position.z=.128;g.add(cap);
   return g;
 }
 const knife=buildKnife();
@@ -56,7 +68,7 @@ let nineWave={warned:false,t:0,hit:false,endT:-1},homeArm=0;
 
 /* ---------- tutorial (VR) ---------- */
 const TUT=[
-  {k:['rod'],t:'Возьмите удочку из держателя у борта: поднесите руку (рука раскроется) и зажмите боковую кнопку'},
+  {k:['rod'],t:'Поднесите руку к удочке у борта: появится табличка. Боковая кнопка берёт всей рукой, курок — пальцами. Удочку можно взять и второй рукой'},
   {k:['lureswap','cast'],t:'Смена приманки: возьмите приманку рукой, курком отстегните, поднесите любую из ящика к карабину. Или сразу забрасывайте'},
   {k:['cast'],t:'Зажмите курок: палец прижал леску и дужка открылась. Махните и отпустите курок на взмахе. Жёлтая дуга покажет, куда упадёт приманка'},
   {k:['crank'],t:'Возьмитесь свободной рукой за ручку катушки (она подсветится) и крутите: первый оборот закрывает дужку. Ведите приманку так, как подсказано на запястье'},
@@ -67,7 +79,7 @@ const TUT=[
   {k:['open'],t:'Вспорите брюхо: проведите кончиком ножа неглубоко вдоль живота. Режет только нижняя кромка, в кожу нож упирается — слегка надавите'},
   {k:['organ'],t:'Возьмите потроха рукой и бросьте в ведро. Поднимите рыбу — они свесятся сами'},
   {k:['chop'],t:'Хребет нож не берёт: рубите резким ударом или пилите, двигая лезвие вперёд-назад с нажимом. Слабая долгая вибрация — нож упёрся'},
-  {k:['ice'],t:'Снимите филе вдоль хребта и положите в ледник. Нож плашмя по коже снимает кожу. Затупился — точило на столе'},
+  {k:['ice'],t:'Откройте крышку ящика со льдом за ручку и положите туда улов — продаётся только то, что во льду. Ножом плашмя можно сдвигать куски'},
 ];
 S.fn.tut=key=>{const st=TUT[save.tutorial];if(!st||!st.k.includes(key))return;save.tutorial++;persist();sfx.coin();if(save.tutorial>=TUT.length)msg('Обучение пройдено','Удачной рыбалки!',2);};
 S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
@@ -75,7 +87,7 @@ S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
 /* ---------- settings ---------- */
 function segInit(attr,key,parse,cb){document.querySelectorAll(`[${attr}]`).forEach(b=>{const v=parse(b.getAttribute(attr));b.setAttribute('aria-pressed',String(v===save[key]));
   b.addEventListener('click',()=>{save[key]=v;persist();document.querySelectorAll(`[${attr}]`).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));cb&&cb();});});}
-segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);segInit('data-haptic','hapticGain',Number);segInit('data-eye','eyeOff',Number);
+segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);segInit('data-haptic','hapticGain',Number);segInit('data-eye','eyeOff',Number);segInit('data-cast','castAssist',Number);segInit('data-tags','tags',String);
 document.getElementById('bTut')?.addEventListener('click',()=>{save.tutorial=0;persist();msg('Обучение начнётся заново','',1.4);});
 ui.bStart.addEventListener('click',()=>{audioInit();startTrip();});
 ui.bView.addEventListener('click',()=>toggleView());ui.bIce.addEventListener('click',()=>clearBoard());ui.bHome.addEventListener('click',()=>goHome());ui.bMute.addEventListener('click',()=>toggleMute());
@@ -151,7 +163,7 @@ function vrButtons(dt){
   for(const h of Object.values(HANDS)){if(!h||!h.src||!h.src.gamepad)continue;const g=h.src.gamepad;
     const a=!!(g.buttons[4]&&g.buttons[4].pressed),b=!!(g.buttons[5]&&g.buttons[5].pressed);
     if(S.gameState==='port'){if(a&&!h.prev.a)startTrip();h.prev.a=a;continue;}
-    if(a&&!h.prev.a&&!rodInHand())clearBoard();h.prev.a=a;
+    h.prev.a=a;
     if(b){h.bHeld=(h.bHeld||0)+dt;if(h.bHeld>1.5){h.bHeld=-99;endTrip('home');}}else h.bHeld=0;}
 }
 /* knife cutting in VR */
@@ -178,7 +190,7 @@ function evalPose(near,pos,RE,RB){
 function vrKnife(dt){
   const h=knifeItem.heldBy;
   cutFrame(!h);
-  if(!h){KN.init=false;KN.prevEdge=null;return;}
+  if(!h){KN.init=false;KN.prevEdge=null;if(KN.kb&&KN.kb.world)world.removeBody(KN.kb);return;}
   handMatrixBoat(h,_km);if(knifeItem.offset)_km.multiply(knifeItem.offset);_km.decompose(_kp,_kq,_ks);
   if(!KN.init){KN.pos.copy(_kp);KN.prevHand.copy(_kp);KN.vel.set(0,0,0);KN.init=true;KN.prevEdge=null;KN.state='free';}
   // hand velocity (smoothed) and the push intent: where the hand is going plus where it is pulling the blade
@@ -235,7 +247,9 @@ function vrKnife(dt){
     if(budget<=1e-4)state=state==='free'?(cur.e>0?'cut':'free'):state;
     else if(state==='free')state=cur.e>0?'cut':'free';
     // blocked by a solid: lean on the fish (it gets pushed a little)
-    if(state==='body'){const it=near[0].it;if(it.body&&!it.heldBy){const f=V().copy(dir).multiplyScalar(Math.min(20,Feff*.5));it.body.applyForce(new CANNON.Vec3(f.x,f.y,f.z),it.body.position);}}
+    if(state==='body'){ // the flat leans on the piece it touches and slides it along
+      let best=null,bd=1e9;for(const n of near){if(!n.it.body||n.it.heldBy)continue;const d2=n.it.body.position.distanceTo(new CANNON.Vec3(KN.pos.x,KN.pos.y,KN.pos.z));if(d2<bd){bd=d2;best=n.it;}}
+      if(best){const f=V().copy(dir).multiplyScalar(Math.min(45,Feff*.9+best.body.mass*4));f.y=Math.max(f.y,0);best.body.wakeUp();best.body.applyForce(new CANNON.Vec3(f.x,f.y,f.z),best.body.position);}}
   }
   // the board: the blade cannot go through the table top
   {let lowest=1e9;for(const p of RE){const y=p.y+KN.pos.y;if(y<lowest)lowest=y;}
@@ -243,6 +257,11 @@ function vrKnife(dt){
    if(Math.abs(lx)<.3&&Math.abs(lz)<.66&&lowest<TABLE.top-.004){const hit=KN.vel.y<-.4&&!KN.tableHit;KN.pos.y+=TABLE.top-.004-lowest;if(hit){hapPulse(h,.5,15);sfx.tap(.4);}KN.tableHit=KN.vel.y<-.4;}else KN.tableHit=false;
    if(lowest<.012&&!(Math.abs(lx)<.3&&Math.abs(lz)<.66)){KN.pos.y+=.012-lowest;}}
   knife.position.copy(KN.pos);knife.updateMatrixWorld(true);
+  if(!KN.kb){KN.kb=new CANNON.Body({mass:0,type:CANNON.Body.KINEMATIC,collisionFilterGroup:G_TOOL,collisionFilterMask:G_PIECE|G_ORGAN});
+    KN.kb.addShape(new CANNON.Box(new CANNON.Vec3(.004,.015,.1)),new CANNON.Vec3(0,-.005,-.12));KN.kb.addShape(new CANNON.Box(new CANNON.Vec3(.011,.012,.06)),new CANNON.Vec3(0,0,.07));}
+  if(!KN.kb.world){world.addBody(KN.kb);KN.kb.position.set(KN.pos.x,KN.pos.y,KN.pos.z);}
+  {const kb=KN.kb,k=1/Math.max(dt,1e-3);kb.velocity.set((KN.pos.x-kb.position.x)*k,(KN.pos.y-kb.position.y)*k,(KN.pos.z-kb.position.z)*k);
+   kb.position.set(KN.pos.x,KN.pos.y,KN.pos.z);kb.quaternion.set(_kq.x,_kq.y,_kq.z,_kq.w);kb.collisionResponse=!(state==='cut'||removedTotal>0||KN.state==='cut');}
   // sharpening: the blade drawn over the stone
   const midW=knife.localToWorld(V(0,-.02,-.12));const sl=boat.worldToLocal(midW.clone());
   if(Math.abs(sl.x-STONE.x)<.05&&Math.abs(sl.z-STONE.z)<.11&&Math.abs(sl.y-STONE.y)<.035&&handSp>.15){
@@ -433,6 +452,24 @@ function clearBoard(){
   for(const it of t)if(items.includes(it))toIce(it);
 }
 
+/* ---------- ice box lid: take the handle and swing it open ---------- */
+const lid={a:0,pivot:new THREE.Group(),body:null,hand:null};
+{lid.pivot.position.set(.28,.62,0);ICE.add(lid.pivot);
+ const top=new THREE.Mesh(new THREE.BoxGeometry(.58,.045,.52),ICE.userData.mat);top.position.set(-.29,.0225,0);lid.pivot.add(top);
+ const hd=new THREE.Mesh(new THREE.BoxGeometry(.03,.025,.16),Mat(0xd9d4c4));hd.position.set(-.575,.03,0);lid.pivot.add(hd);lid.handle=hd;
+ lid.body=new CANNON.Body({mass:0,type:CANNON.Body.STATIC});lid.body.addShape(new CANNON.Box(new CANNON.Vec3(.28,.02,.25)));lid.body.position.set(ICE.position.x,.66,ICE.position.z);}
+function setLid(a){lid.a=a;lid.pivot.rotation.z=-a;S.iceOpen=a>.7;
+  if(a<.3&&!lid.body.world)world.addBody(lid.body);if(a>=.3&&lid.body.world)world.removeBody(lid.body);}
+setLid(0);
+function lidGrab(h){const hp=h.grip.getWorldPosition(V());if(hp.distanceTo(lid.handle.getWorldPosition(V()))>.13)return false;h.lid=true;lid.hand=h;hapPulse(h,.35,25);sfx.pick();return true;}
+function updateLid(dt){
+  if(!renderer.xr.isPresenting){if(lid.a<1.5)setLid(1.6);return;}
+  const h=lid.hand;if(!h)return;const gp=h.src&&h.src.gamepad;const held=!!(gp&&(gp.buttons[1].pressed||gp.buttons[0].value>.5));
+  if(!held){h.lid=false;lid.hand=null;if(lid.a<.25){setLid(0);sfx.thump(.5);hapPulse(h,.5,30);}return;}
+  const p=ICE.worldToLocal(h.grip.getWorldPosition(V()));const a=Math.atan2(p.y-.62,-(p.x-.28));
+  const na=Math.max(0,Math.min(1.9,a));if(Math.abs(na-lid.a)>.15)hapPulse(h,.12,10);setLid(na);
+}
+{const fg=S.fn.handGrabSpecial;S.fn.handGrabSpecial=h=>lidGrab(h)||(fg?fg(h):false);}
 /* ---------- trip flow ---------- */
 function clearGroup(g){while(g.children.length)g.remove(g.children[0]);}
 function startTrip(){
@@ -449,7 +486,7 @@ function startTrip(){
 }
 function endTrip(reason){
   if(S.gameState!=='sea')return;S.gameState='port';ptr.down=false;
-  if(reason!=='wave'){for(const it of pieceItems()){const ev=evaluateSafe(it);if(ev&&!ev.waste)S.products.push({sp:it.vobj.fish.sp,kg:ev.kg,kind:ev.kind+', с палубы',value:ev.value*.7});}}
+  // only what lies in the ice box is sold
   for(const it of pieceItems()){removeItem(it);it.obj.removeFromParent();}
   resetFishing();
   const total=S.products.reduce((a,p)=>a+p.value,0);save.money+=Math.round(total);persist();if(total>0)sfx.coin();
@@ -586,6 +623,7 @@ function frame(){
     if(S.gameState==='sea'){vrLocomotion(dt);for(const k of ['left','right']){const h=HANDS[k];if(h)updateHand(h,dt,h.src&&h.src.gamepad);}fishingVR(dt);vrKnife(dt);vrScaler(dt);}
     vrButtons(dt);
     for(const k of ['left','right']){const h=HANDS[k];if(h)animateHand(h,dt);}
+    updateTags(HANDS,dt);
   }else{
     F.reel=S.gameState==='sea'&&S.view==='sea'&&ptr.down&&F.state!=='wind'&&(F.state!=='ready'||(F.hasLure&&F.line>.45))?1:0;
     if(S.view==='sea'&&rodItem.desk)updateDeskRod(dt,ptr.ndc);
@@ -598,7 +636,7 @@ function frame(){
   syncItems();updateLinks();collect(dt);processSplits(dt);
   updateCamera(dt);updateRodLine(dt);updateAnims(dt);updateParts(dt);updateFloaters(dt);updateBirds(dt);
   audioUpdate(dt,(F.state==='hooked')?F.tension/lineStrength():0);updateHUD(dt);drawWrist(dt);
-  updateFishShading();
+  updateFishShading();updateLid(dt);updateSchools(dt,F.lure,F.state==='water'&&F.depth<3);
   hapFlush();
   renderer.render(scene,camera);
 }
