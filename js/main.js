@@ -40,6 +40,8 @@ const scalerItem=registerTool('scaler',scaler,b=>b.addShape(new CANNON.Box(new C
 const SC_PTS=[V(0,-.014,-.03),V(0,-.014,-.055),V(0,-.014,-.08)];
 const KN_EDGE=[];for(let i=0;i<=10;i++){const z=-.012-i*.0215;KN_EDGE.push(V(0,z<-.19?-.02+(-.19-z)*.35:-.0205,z));}
 const KNIFE_TIP=V(0,-.012,-.228);
+// dense samples along the edge (about 5 mm apart) so thin bones are never stepped over
+const KN_EDGE_D=[];for(let i=0;i<KN_EDGE.length-1;i++)for(let k=0;k<4;k++)KN_EDGE_D.push(KN_EDGE[i].clone().lerp(KN_EDGE[i+1],k/4));KN_EDGE_D.push(KN_EDGE[KN_EDGE.length-1].clone());
 /* whetstone on the table: draw the blade across it to sharpen */
 const STONE=V(TABLE.x-.3,TABLE.top+.012,TABLE.z-.62);
 {const st=new THREE.Mesh(new THREE.BoxGeometry(.06,.024,.18),Mat(0x6b6f74,{roughness:1}));st.position.copy(STONE);boat.add(st);
@@ -158,7 +160,7 @@ const KN={pos:V(),init:false,vel:V(),prevHand:V(),state:'free',blockT:0,saw:0,sa
 const K_SPRING=130;                       // N per metre of lag between hand and blade
 const TH={[M.SKIN]:1.0,[M.SKIN2]:.8,[M.FLESH]:.45,[M.BLOOD]:.45,[M.LINING]:.5,[M.RIB]:2.4,[M.HEAD]:2.8,[M.GILL]:1.4,[M.EYE]:.8,[M.FIN]:.2,
   [M.BONE]:30,[M.STOMACH]:.25,[M.LIVER]:.3,[M.GUT]:.25,[M.ROE]:.2,[M.GALL]:.2};
-const BODY_LOCAL=[];for(const z of [-.03,-.075,-.12,-.165,-.205])BODY_LOCAL.push(V(0,.004,z),V(0,-.008,z));
+const BODY_LOCAL=[];for(let z=-.03;z>-.21;z-=.02)BODY_LOCAL.push(V(0,.004,z),V(0,-.008,z));
 const _rq=new THREE.Quaternion(),_inv=new THREE.Quaternion();
 const _km=new THREE.Matrix4(),_kp=V(),_kq=new THREE.Quaternion(),_ks=V();
 const KNIFE_FACE=[];for(const y of [-.018,-.006,.006])for(const z of [-.03,-.07,-.11,-.15,-.19])KNIFE_FACE.push(V(0,y,z));
@@ -193,7 +195,7 @@ function vrKnife(dt){
   const Feff=K_SPRING*lag+strike;
   KN.boneOK=Math.max(0,KN.boneOK-dt);
   // rotated sample points (blade coordinates -> boat-local offsets)
-  const RE=KN_EDGE.map(p=>p.clone().applyQuaternion(_kq)),RB=BODY_LOCAL.map(p=>p.clone().applyQuaternion(_kq));
+  const RE=KN_EDGE_D.map(p=>p.clone().applyQuaternion(_kq)),RB=BODY_LOCAL.map(p=>p.clone().applyQuaternion(_kq));
   const near=kneeNear(KN.pos);
   let state='free',cutMat=0,removedTotal=0,rib=0,organs=0,boneCut=false;
   if(!near.length){KN.pos.copy(_kp);}
