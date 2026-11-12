@@ -70,9 +70,9 @@ let nineWave={warned:false,t:0,hit:false,endT:-1},homeArm=0;
 const TUT=[
   {k:['rod'],t:'Поднесите руку к удочке у борта: появится табличка. Боковая кнопка берёт всей рукой, курок — пальцами. Удочку можно взять и второй рукой'},
   {k:['lureswap','cast'],t:'Смена приманки: возьмите приманку рукой, курком отстегните, поднесите любую из ящика к карабину. Или сразу забрасывайте'},
-  {k:['cast'],t:'Зажмите курок: палец прижал леску и дужка открылась. Махните и отпустите курок на взмахе. Жёлтая дуга покажет, куда упадёт приманка'},
+  {k:['cast'],t:'Зажмите A/X: палец прижал леску и дужка открылась. Махните и отпустите A/X на взмахе. Курок распускает леску. Жёлтая дуга покажет, куда упадёт приманка'},
   {k:['crank'],t:'Возьмитесь свободной рукой за ручку катушки (она подсветится) и крутите: первый оборот закрывает дужку. Ведите приманку так, как подсказано на запястье'},
-  {k:['hook'],t:'Ждите. Лёгкие толчки в руке — рыба пробует. Сильный рывок — резко дёрните удилище вверх'},
+  {k:['hook'],t:'Ждите. Лёгкие толчки в руке — рыба пробует. Сильный рывок — резко дёрните удилище вверх. Дальше рука чувствует рыбу: гул — тянет, удары — трясёт головой, тяжёлые рывки — уходит вглубь'},
   {k:['landing'],t:'Рука с удочкой чувствует рыбу: ровный гул — тянет, тишина — леска провисла, подматывайте. Кольцо на катушке: красное — ослабьте правым стиком'},
   {k:['netted','unhooked'],t:'Усталую мелкую рыбу можно взять рукой из воды. Крупную — подсаком с крюка у борта'},
   {k:['table'],t:'Отнесите рыбу на стол. Нож лежит у края стола'},
@@ -247,6 +247,7 @@ function vrKnife(dt){
     if(budget<=1e-4)state=state==='free'?(cur.e>0?'cut':'free'):state;
     else if(state==='free')state=cur.e>0?'cut':'free';
     // blocked by a solid: lean on the fish (it gets pushed a little)
+    if(state==='body'&&handSp>1.6){for(const n of near)if(n.it.vobj.fish.alive){n.it.vobj.fish.alive=false;hapPulse(h,.9,50);sfx.thump(.6);msg('Оглушена','',.8);}}
     if(state==='body'){ // the flat leans on the piece it touches and slides it along
       let best=null,bd=1e9;for(const n of near){if(!n.it.body||n.it.heldBy)continue;const d2=n.it.body.position.distanceTo(new CANNON.Vec3(KN.pos.x,KN.pos.y,KN.pos.z));if(d2<bd){bd=d2;best=n.it;}}
       if(best){const f=V().copy(dir).multiplyScalar(Math.min(45,Feff*.9+best.body.mass*4));f.y=Math.max(f.y,0);best.body.wakeUp();best.body.applyForce(new CANNON.Vec3(f.x,f.y,f.z),best.body.position);}}
@@ -294,7 +295,7 @@ function vrKnife(dt){
     else hapCont(h,.1+.2*speed);                                                                                   // soft low hum in meat
     if(rib>0){hapPulse(h,.5,15);sfx.bone();}
     if(organs>0){hapPulse(h,.3,40);sfx.squelch();}
-    if(boneCut){hapPulse(h,1,90);sfx.crunch();S.fn.tut?.('chop');}
+    if(boneCut){hapPulse(h,1,90);sfx.crunch();S.fn.tut?.('chop');for(const n of near)n.it.vobj.fish.alive=false;}
     if(removedTotal){S.cutOnLine=true;S.sharp=Math.max(.2,S.sharp-removedTotal*2.5e-6-(boneCut?.004:0));S.cutSound=1;}
     if(S.sharp<.45&&!S.dullWarned){S.dullWarned=true;msg('Нож затупился','Проведите лезвием по точилу на столе',2);}
     if(S.sharp>.8)S.dullWarned=false;
@@ -568,9 +569,7 @@ function drawWrist(dt){
   wristT-=dt;if(wristT>0||!renderer.xr.isPresenting)return;wristT=.2;
   const g=wristCanvas.getContext('2d');g.clearRect(0,0,512,320);g.fillStyle='rgba(12,22,27,.88)';g.beginPath();g.roundRect(0,0,512,320,26);g.fill();
   g.fillStyle='#b3ab98';g.font='500 24px "Golos Text",sans-serif';g.fillText('ШТОРМ',22,38);g.fillStyle='rgba(239,230,210,.15)';g.fillRect(120,22,370,14);g.fillStyle='#d0a54c';g.fillRect(120,22,370*S.storm,14);
-  const fight=F.state==='hooked'||F.state==='landing';const t=fight?F.tension/lineStrength():0;
-  g.fillStyle='#b3ab98';g.fillText('НАТЯЖ.',22,74);g.fillStyle='rgba(239,230,210,.15)';g.fillRect(120,58,370,14);g.fillStyle=t>.85?'#e0473a':t>.6?'#f2c14e':'#4fd18b';g.fillRect(120,58,370*clamp(t,0,1),14);
-  g.fillStyle='#efe6d2';g.font='600 26px "Golos Text",sans-serif';g.fillText(`Фрикцион ${Math.round(F.drag*100)}% · ${F.hasLure?LU[F.lureId].name:'без приманки'}`,22,112);
+  g.fillStyle='#efe6d2';g.font='600 26px "Golos Text",sans-serif';g.fillText(F.hasLure?LU[F.lureId].name:'без приманки',22,80);
   const tut=TUT[save.tutorial];let text,col='#d0a54c';
   if(vrMsg.t>0){text=vrMsg.text;}else if(tut){text='Шаг '+(save.tutorial+1)+'/'+TUT.length+'. '+tut.t;col='#7fe0c0';}else text=vrHint();
   g.fillStyle=col;g.font='600 26px "Golos Text",sans-serif';const words=text.split(' ');let line='',y=152;
@@ -580,9 +579,9 @@ function drawWrist(dt){
 function vrHint(){
   if(knifeItem.heldBy)return `Острота ножа ${Math.round(S.sharp*100)}%. Вдоль рыбы режет легче, поперёк туже. В кость упирается: рубите резким ударом. Точило — на столе`;
   if(scalerItem.heldBy)return 'Водите чешуечисткой по коже: чешуя слетает. Рыба без чешуи стоит дороже';
-  switch(F.state){case 'ready':return rodInHand()?(F.hasLure?'Зажмите курок, махните и отпустите. Приманку можно взять рукой и отстегнуть курком':'Карабин пуст: возьмите приманку из ящика и поднесите к карабину'):'Удочка в держателе у борта, подсак слева от неё, нож у стола';
+  switch(F.state){case 'ready':return rodInHand()?(F.hasLure?'Зажмите A/X, махните и отпустите. Курок — распустить леску. Приманку можно взять рукой и отстегнуть курком':'Карабин пуст: возьмите приманку из ящика и поднесите к карабину'):'Удочка в держателе у борта, подсак слева от неё, нож у стола';
     case 'water':return F.bite?'Клюёт! Ждите рывка и подсекайте вверх':LU[F.lureId].hint;
-    case 'hooked':return 'Крутите катушку. Правый стик вверх-вниз: фрикцион';case 'landing':return 'Подсак у борта или рывок удилищем для мелкой рыбы';default:return '';}
+    case 'hooked':return 'Крутите катушку. Правый стик вверх-вниз: фрикцион';case 'landing':return 'Подмотайте и спокойно поднимите удилище — рыба выйдет из воды. Крупную (больше 6 кг) — подсаком';default:return '';}
 }
 
 /* ---------- desktop camera ---------- */
@@ -636,6 +635,10 @@ function frame(){
   syncItems();updateLinks();collect(dt);processSplits(dt);
   updateCamera(dt);updateRodLine(dt);updateAnims(dt);updateParts(dt);updateFloaters(dt);updateBirds(dt);
   audioUpdate(dt,(F.state==='hooked')?F.tension/lineStrength():0);updateHUD(dt);drawWrist(dt);
+  {const seen=new Set();for(const it of pieceItems()){const f=it.vobj.fish;if(it.vobj.kind!=='fish')continue;
+    if(!f.alive){it.vobj.setSwim(0);continue;}
+    if(!seen.has(f)){seen.add(f);f.aliveT=(f.aliveT||0)+dt;f.flop=(f.flop??2)-dt;if(f.flop<-.7)f.flop=rand(1.5,4)+f.aliveT*.03;if(f.aliveT>150)f.alive=false;}
+    it.vobj.setSwim(f.flop<0?1.1:.08);}}
   updateFishShading();updateLid(dt);updateSchools(dt,F.lure,F.state==='water'&&F.depth<3);
   hapFlush();
   renderer.render(scene,camera);

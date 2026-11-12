@@ -336,7 +336,7 @@ function tryFinish(it,st,final,opts){
   const cover=near.length?inside/near.length:0;
   if(near.length&&cover>=.96&&!boneHit){
     const nb=cutPiece(ob,n,c);
-    if(nb){const vel={v:it.body.velocity.clone(),w:it.body.angularVelocity.clone()};boat.add(nb.g);const nit=addPiece(nb,vel);S.fn.onPiece?.(nit);rebuildBody(it);
+    if(nb){ob.fish.alive=false;const vel={v:it.body.velocity.clone(),w:it.body.angularVelocity.clone()};boat.add(nb.g);const nit=addPiece(nb,vel);S.fn.onPiece?.(nit);rebuildBody(it);
       sfx.chop();S.cutSound=1;S.fn.onSplit?.(it,[nb]);openedMsg(ob);openedMsg(nb);
       // the hand keeps the part it is holding; nothing else changes
     }

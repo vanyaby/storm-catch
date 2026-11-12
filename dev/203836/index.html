@@ -1,0 +1,232 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Штормовой улов</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&display=swap">
+<style>
+/* Layout: full-bleed 3D canvas; HUD pinned to corners like instruments in a wheelhouse; menus are a captain's logbook card over the sea. */
+:root{
+  --ink:#0c161b; --ink-2:#132229; --ink-3:#1d323b;
+  --bone:#efe6d2; --bone-dim:#b3ab98;
+  --brass:#d0a54c; --buoy:#e5642c; --sea:#4fa3a5; --danger:#e0473a;
+  --font-d:'Unbounded','Arial Black',system-ui,sans-serif;
+  --font-b:'Golos Text',system-ui,-apple-system,'Segoe UI',sans-serif;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;background:var(--ink);color:var(--bone);font-family:var(--font-b);overflow:hidden;-webkit-user-select:none;user-select:none}
+#c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+
+.hud{position:fixed;pointer-events:none;font-size:13px;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.hud-tl{top:calc(14px + env(safe-area-inset-top,0px));left:max(16px,env(safe-area-inset-left,0px));display:grid;gap:6px;width:min(280px,42vw)}
+.lbl{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--bone-dim)}
+.bar{height:6px;background:rgba(239,230,210,.14);border-radius:3px;overflow:hidden;position:relative}
+.bar>i{position:absolute;inset:0 auto 0 0;width:0;background:linear-gradient(90deg,var(--sea),var(--brass),var(--danger))}
+.storm-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#stormTxt{font-family:var(--font-d);font-size:12px}
+#catchTxt,#lureTxt{color:var(--bone-dim);font-variant-numeric:tabular-nums}
+#lureTxt b{color:var(--bone);font-weight:600}
+
+#msg{position:fixed;left:50%;top:18%;transform:translateX(-50%);font-family:var(--font-d);font-weight:700;font-size:clamp(18px,3vw,30px);text-align:center;pointer-events:none;opacity:0;transition:opacity .25s;max-width:min(90vw,800px);text-shadow:0 2px 12px rgba(0,0,0,.7)}
+#msg.show{opacity:1}
+#msg small{display:block;font-family:var(--font-b);font-weight:500;font-size:15px;color:var(--bone-dim);margin-top:6px}
+
+.hud-r{right:max(16px,env(safe-area-inset-right,0px));top:50%;transform:translateY(-50%);width:170px;display:grid;gap:10px;opacity:0;transition:opacity .3s}
+.hud-r.on{opacity:1}
+.gauge{position:relative;height:150px;width:26px;background:rgba(239,230,210,.1);border-radius:13px;overflow:hidden;justify-self:end}
+.gauge>i{position:absolute;left:0;right:0;bottom:0;height:0;background:var(--sea);transition:background .2s}
+.gauge>.mk{position:absolute;left:-4px;right:-4px;height:2px;background:var(--bone)}
+.gauge>.mk.brk{background:var(--danger);height:3px}
+.gwrap{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end}
+.gnotes{display:grid;gap:4px;text-align:right;font-variant-numeric:tabular-nums}
+.gnotes b{font-family:var(--font-d);font-weight:500;font-size:13px}
+.stam{height:4px}
+.stam>i{background:var(--buoy)}
+
+#hint{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(64px + env(safe-area-inset-bottom,0px));pointer-events:none;background:rgba(12,22,27,.62);border:1px solid rgba(239,230,210,.12);padding:8px 14px;border-radius:8px;font-size:14px;max-width:min(92vw,760px);text-align:center;line-height:1.45}
+#hint:empty{display:none}
+#hint kbd{font-family:var(--font-b);font-weight:600;background:var(--ink-3);border:1px solid rgba(239,230,210,.25);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:12px}
+.hud-br{position:fixed;bottom:calc(14px + env(safe-area-inset-bottom,0px));left:max(16px,env(safe-area-inset-left,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;gap:8px;justify-content:center;flex-wrap:wrap;pointer-events:none}
+.hud-br button{pointer-events:auto;background:rgba(12,22,27,.7);border:1px solid rgba(239,230,210,.18);border-radius:6px;padding:6px 10px;font-size:13px}
+.hud-br button:hover{border-color:var(--brass)}
+.hud-br button.warn{border-color:var(--buoy);color:var(--buoy)}
+#slap{position:fixed;inset:0;pointer-events:none;background:radial-gradient(circle at 50% 55%,rgba(220,235,235,.9),rgba(160,190,195,.6) 40%,transparent 70%);opacity:0;transition:opacity .5s}
+#slap.on{opacity:1;transition:none}
+
+.screen{position:fixed;inset:0;display:grid;place-items:center;overflow:auto;padding-block:24px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:linear-gradient(180deg,rgba(12,22,27,.25),rgba(12,22,27,.82))}
+.card{width:min(800px,100%);background:rgba(19,34,41,.93);border:1px solid rgba(239,230,210,.14);border-radius:14px;padding:28px clamp(18px,4vw,36px);display:grid;gap:18px;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.eyebrow{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--brass)}
+h1{font-family:var(--font-d);font-weight:700;font-size:clamp(30px,6vw,54px);line-height:1;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-family:var(--font-d);font-weight:500;font-size:18px;margin:0;text-wrap:balance}
+.lead{font-size:16px;line-height:1.55;color:var(--bone);max-width:62ch;margin:0}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 22px;font-size:14px;line-height:1.45;color:var(--bone-dim)}
+.controls b{color:var(--bone);font-weight:600}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{background:var(--brass);color:var(--ink);border:0;border-radius:8px;padding:12px 20px;font-weight:600;font-size:15px}
+.btn:hover{filter:brightness(1.08)}
+.btn.ghost{background:transparent;color:var(--bone);border:1px solid rgba(239,230,210,.3)}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+.seg{display:inline-flex;border:1px solid rgba(239,230,210,.25);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;border:0;padding:7px 12px;font-size:13px;color:var(--bone-dim)}
+.seg button[aria-pressed="true"]{background:var(--ink-3);color:var(--bone)}
+.note{font-size:13px;color:var(--bone-dim);margin:0;line-height:1.5}
+details{font-size:14px;color:var(--bone-dim);line-height:1.5}
+details summary{cursor:pointer;color:var(--bone);font-weight:600}
+details ul{margin:8px 0 0;padding-left:18px;display:grid;gap:4px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+th{font-weight:500;color:var(--bone-dim);text-align:left;font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid rgba(239,230,210,.14)}
+td{padding:7px 8px;border-bottom:1px solid rgba(239,230,210,.07)}
+td.num,th.num{text-align:right}
+.tablewrap{overflow-x:auto}
+.total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.total .big{font-family:var(--font-d);font-size:30px;color:var(--brass)}
+.journal{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.jcard{border:1px solid rgba(239,230,210,.12);border-radius:8px;padding:10px;display:grid;gap:4px;font-size:13px;min-width:0}
+.jcard .sw{height:6px;border-radius:3px}
+.jcard.unk{opacity:.45}
+.jcard b{font-weight:600}
+.shop{display:grid;gap:8px}
+.shopitem{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border:1px solid rgba(239,230,210,.12);border-radius:8px;padding:10px 12px}
+.shopitem p{margin:2px 0 0;font-size:13px;color:var(--bone-dim)}
+.pips{display:inline-flex;gap:3px;margin-left:6px;vertical-align:middle}
+.pips i{width:8px;height:8px;border-radius:50%;border:1px solid var(--brass)}
+.pips i.on{background:var(--brass)}
+@media (max-width:640px){.hud-r{width:120px}.gauge{height:110px}#hint{font-size:12px}}
+@media (prefers-reduced-motion:reduce){#msg,.hud-r{transition:none}}
+</style>
+
+<canvas id="c"></canvas>
+
+<div id="hud" hidden>
+  <div class="hud hud-tl">
+    <div class="storm-row"><span class="lbl">Шторм</span><span id="stormTxt">штиль</span></div>
+    <div class="bar"><i id="stormFill"></i></div>
+    <div id="catchTxt"></div>
+    <div id="lureTxt"></div>
+  </div>
+  <div class="hud hud-r" id="gauges">
+    <div class="gwrap">
+      <div class="gnotes">
+        <span class="lbl">Натяжение</span>
+        <b id="gTen">0%</b>
+        <span class="lbl">Фрикцион</span>
+        <b id="gDrag">65%</b>
+        <span class="lbl">Леска</span>
+        <b id="gLine">0 м</b>
+      </div>
+      <div class="gauge"><i id="gFill"></i><span class="mk" id="gDragMk"></span><span class="mk brk" id="gBrkMk"></span></div>
+    </div>
+    <div><span class="lbl">Силы рыбы</span><div class="bar stam"><i id="gStam"></i></div></div>
+  </div>
+  <div id="msg"></div>
+  <div id="hint"></div>
+  <div class="hud-br">
+    <button id="bView" type="button">К столу · E</button>
+    <button id="bIce" type="button">Убрать со стола · Q</button>
+    <button id="bHome" type="button">Домой · R</button>
+    <button id="bMute" type="button">Звук · M</button>
+  </div>
+  <div id="slap"></div>
+</div>
+
+<section id="start" class="screen">
+  <div class="card">
+    <span class="eyebrow">Рыбацкий бот «Чайка» · порт приписки Ветреный</span>
+    <h1>Штормовой улов</h1>
+    <p class="lead">Вы один на маленьком боте. С каждой минутой шторм крепнет, и рыба становится крупнее. Поймайте её, разделайте ножом как хотите — рыба режется в любом месте, вместе с костями и потрохами — и уложите в лёд. Решайте сами, когда пора домой.</p>
+    <div class="controls">
+      <div><b>Взять что угодно.</b> Поднесите руку — появится табличка. Боковая кнопка — всей рукой, курок — пальцами. Можно держать двумя руками, тяжёлую рыбу — только двумя.</div>
+      <div><b>Удочка</b> в держателе у борта, <b>подсак</b> на крюке рядом, <b>нож</b> и <b>чешуечистка</b> у края стола, <b>приманки</b> в ящике слева.</div>
+      <div><b>Заброс.</b> Зажмите A/X рукой с удочкой — палец прижал леску, дужка открыта. Махните и отпустите A/X на взмахе: игра помогает с направлением. Курок распускает леску. Рыбу у поверхности поднимайте спокойно — подмотайте и поднимите удилище.</div>
+      <div><b>Катушка.</b> Свободной рукой возьмитесь за ручку и крутите кистью. Кольцо на катушке: зелёное — тяните, красное — ослабьте фрикцион правым стиком.</div>
+      <div><b>Нож</b> режет только нижней кромкой (она светлая). Он физический: не проходит сквозь рыбу без усилия, вибрация подсказывает материал. Слабая долгая вибрация — упёрся. Хребет берёт только резкий удар или пиление. Плашмя по коже снимает кожу, чешуечисткой чистят чешую, точило на столе.</div>
+      <div><b>Ходьба:</b> левый стик (плавно или телепорт). <b>Поворот:</b> правый стик. <b>A/X</b> с удочкой — палец на леске (заброс), <b>курок</b> — распустить леску. Улов сами кладите в ящик со льдом, открыв крышку. <b>Держать Y/B:</b> домой.</div>
+    </div>
+    <details>
+      <summary>На компьютере</summary>
+      <ul>
+        <li>Заброс: зажмите и отпустите левую кнопку мыши. Подсечка: мышь резко вверх или Пробел. Колесо — фрикцион. 1–5 — приманки.</li>
+        <li>E — к столу. X меняет режим: насквозь, надрез (вскрыть брюхо), плашмя (филе над хребтом), кожа, чешуя.</li>
+        <li>G — достать потроха из вскрытого брюха. F — перевернуть. Ctrl + мышь — поднять кусок. Правая кнопка — в лёд, Shift + правая — в ведро.</li>
+      </ul>
+    </details>
+    <div class="row">
+      <span class="lbl">Передвижение в VR</span>
+      <div class="seg" role="group" aria-label="Передвижение в VR">
+        <button type="button" data-move="smooth">Плавно</button>
+        <button type="button" data-move="teleport">Телепорт</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Сила вибрации</span>
+      <div class="seg" role="group" aria-label="Сила вибрации">
+        <button type="button" data-haptic="0.5">Слабая</button>
+        <button type="button" data-haptic="1">Обычная</button>
+        <button type="button" data-haptic="1.5">Сильная</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Помощь при забросе</span>
+      <div class="seg" role="group" aria-label="Помощь при забросе">
+        <button type="button" data-cast="0">Нет</button>
+        <button type="button" data-cast="0.5">Слабая</button>
+        <button type="button" data-cast="0.9">Сильная</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Таблички</span>
+      <div class="seg" role="group" aria-label="Таблички">
+        <button type="button" data-tags="hover">При наведении</button>
+        <button type="button" data-tags="off">Выкл</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Положение</span>
+      <div class="seg" role="group" aria-label="Положение">
+        <button type="button" data-eye="0">Стоя</button>
+        <button type="button" data-eye="0.4">Сидя</button>
+        <button type="button" data-eye="0.15">Ниже ростом</button>
+        <button type="button" data-eye="-0.15">Выше ростом</button>
+      </div>
+    </div>
+    <div class="row">
+      <span class="lbl">Детализация рыбы</span>
+      <div class="seg" role="group" aria-label="Детализация рыбы">
+        <button type="button" data-detail="mid">5 мм</button>
+        <button type="button" data-detail="high">4 мм</button>
+        <button type="button" data-detail="max">3 мм</button>
+      </div>
+      <span class="note">мельче — точнее рез, но тяжелее для шлема</span>
+    </div>
+    <div class="row">
+      <span class="lbl">Удочка в руке</span>
+      <div class="seg" role="group" aria-label="Удочка в руке">
+        <button type="button" data-rodhand="right">Правой</button>
+        <button type="button" data-rodhand="left">Левой</button>
+      </div>
+      <span class="lbl">Катушка</span>
+      <div class="seg" role="group" aria-label="Катушка">
+        <button type="button" data-reelmode="hand">Крутить рукой</button>
+        <button type="button" data-reelmode="trigger">Курком</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn" id="bStart" type="button">Выйти в море</button>
+      <button class="btn ghost" id="bVR" type="button" hidden>Войти в VR</button>
+      <button class="btn ghost" id="bTut" type="button">Пройти обучение заново</button>
+    </div>
+    <p class="note" id="vrNote">В VR подсказки с обучением показываются на табличке на левом запястье.</p>
+  </div>
+</section>
+
+<section id="port" class="screen" hidden>
+  <div class="card" id="portCard"></div>
+</section>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js" } }
+</script>
+<script type="module" src="js/main.js"></script>
