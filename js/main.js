@@ -587,7 +587,7 @@ function frame(){
 }
 rodToDesk();
 renderer.setAnimationLoop(frame);
-window.__game={hapLog,scalerItem,scaler,vrScaler,deckOK,walk,descale,forceHook,liftOrNet,THREE,CANNON,S,F,camera,scene,boat,fishRoot,rig,HANDS,updateHand,vrKnife,fishingVR,knife,rod,net,board,items,pieceItems,world,save,mouse,links,knifeItem,rodItem,netItem,
+window.__game={KN,evalPose,kneeNear,BODY_LOCAL,KN_EDGE,hapLog,scalerItem,scaler,vrScaler,deckOK,walk,descale,forceHook,liftOrNet,THREE,CANNON,S,F,camera,scene,boat,fishRoot,rig,HANDS,updateHand,vrKnife,fishingVR,knife,rod,net,board,items,pieceItems,world,save,mouse,links,knifeItem,rodItem,netItem,
   startTrip,endTrip,toIce,toBucket,knifeSweep,evaluate,autoHeight,
   step:n=>{stepDt=1/30;for(let i=0;i<n;i++)frame();stepDt=0;},
   spawnDeck:(id,L)=>{const sp=SP[id];const len=L||lerp(sp.len[0],sp.len[1],.5);const f=newFish(sp,len,Math.round(sp.k*len**3*100)/100);const ob=buildFish(f);boat.add(ob.g);ob.g.position.copy(DECK_SPOT).add(V(0,.15,0));ob.g.quaternion.setFromAxisAngle(UP,Math.PI/2);return addPiece(ob);}};
