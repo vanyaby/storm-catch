@@ -388,6 +388,7 @@ function updateRope(dt){
   let rest=hang?Math.max(F.line,.3):(F.state==='hooked'||F.state==='landing')?Math.max(F.line,0):Math.max(F.line,dist);
   if(!hang)rest=Math.max(rest,dist*.999);
   if(!rope.ok){for(let i=0;i<ROPE_N;i++){rope.p[i].lerpVectors(A,B,i/(ROPE_N-1));rope.o[i].copy(rope.p[i]);}rope.ok=true;}
+  if(hang){const dd=rope.p[ROPE_N-1].distanceTo(A);rest=Math.max(rest,dd-.06);}   // the line can take in only a few cm per frame: the lure is pulled in smoothly
   const seg=rest/(ROPE_N-1);const g=-9.8*dt*dt;
   const iEnd=hang?ROPE_N:ROPE_N-1;const LUm=LU[F.lureId];
   for(let i=1;i<iEnd;i++){const p=rope.p[i],o=rope.o[i];const sw=waveH(p.x,p.z);const inW=p.y<sw;
@@ -401,8 +402,7 @@ function updateRope(dt){
   }
   if(hang){ // a hanging line cannot whip faster than a few m/s: no rocketing when the rod moves or the line is wound in
     const vmax=6*dt;for(let i=1;i<ROPE_N;i++){const p=rope.p[i],o=rope.o[i];_v1.subVectors(p,o);const l=_v1.length();if(l>vmax)p.copy(o).addScaledVector(_v1,vmax/l);}
-    if(rope.p[ROPE_N-1].distanceTo(A)>rest*1.02+.02){ // stretched past the line length (the rod went up fast): pull the whole line in gently
-      for(let i=1;i<ROPE_N;i++){rope.p[i].lerp(A,.12);}}
+
   }
   if(hang||F.state==='ready'){F.lure.copy(rope.p[ROPE_N-1]);}
   const pa=lineGeo.attributes.position;for(let i=0;i<ROPE_N;i++)pa.setXYZ(i,rope.p[i].x,rope.p[i].y,rope.p[i].z);pa.needsUpdate=true;
