@@ -3,12 +3,13 @@
 import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, pick, damp, save, persist, lineStrength, reelMult, scene, rig, camera, renderer, boat,
   RAIL, DECK_SPOT, HOLSTER, SPECIES, LU, LURES, lureModel, tackleSlots, hotspot, wind, waveH, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { CANNON, world } from './physics.js';
-import { items, registerTool, toHolster, HANDS, mainHand, offHand, buzzHand, addPiece, removeItem, handMatrixBoat, grabPiece, snapToHand } from './interact.js';
+import { items, registerTool, toHolster, HANDS, mainHand, offHand, addPiece, removeItem, handMatrixBoat, grabPiece, snapToHand } from './interact.js';
 import { newFish, buildFish } from './voxel.js';
+import { hapPulse, hapCont, hapBoth } from './haptics.js';
 
 export const F={state:'ready',lure:V(),lureVel:V(),depth:0,charge:0,bite:null,fish:null,tension:0,drag:.65,slackT:0,breakT:0,landT:0,
   reel:0,twitchV:0,act:0,biteCheck:1,waterT:0,slipAcc:0,clickAcc:0,swim:null,lureId:'spoon',hasLure:true,
-  netted:null,dangle:null,line:0,bail:'closed',feather:false};
+  netted:null,dangle:null,line:0,bail:'closed',feather:false,pres:.3,pauseT:0,pauseBonus:0,hops:0,hopT:99,bottom:30,wobT:0,lureHold:null};
 
 /* ---------- rod with a bail arm on the reel ---------- */
 const knobMat=Mat(0x222222,{emissive:0x000000});
@@ -65,7 +66,8 @@ const rope={p:[],o:[],ok:false};for(let i=0;i<ROPE_N;i++){rope.p.push(V());rope.
 const lineGeo=new THREE.BufferGeometry();lineGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ROPE_N*3),3));
 const fishLine=new THREE.Line(lineGeo,new THREE.LineBasicMaterial({color:0xf3efe2,transparent:true,opacity:.85}));fishLine.frustumCulled=false;scene.add(fishLine);
 const lure=new THREE.Group();scene.add(lure);let lureMesh=null;
-export function setLureModel(id){if(lureMesh)lure.remove(lureMesh);lureMesh=id?lureModel(LU[id]):null;if(lureMesh)lure.add(lureMesh);}
+const clip=new THREE.Mesh(new THREE.TorusGeometry(.012,.0028,5,10),Mat(0xb9bdc1,{metalness:.8,roughness:.3}));clip.visible=false;scene.add(clip);
+export function setLureModel(id){if(lureMesh)lure.remove(lureMesh);lureMesh=id?lureModel(LU[id]):null;if(lureMesh){lureMesh.position.y=-.03;lure.add(lureMesh);}}
 setLureModel(F.lureId);
 const ARC_N=40;const arcGeo=new THREE.BufferGeometry();arcGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(ARC_N*3),3));
 const arc=new THREE.Points(arcGeo,new THREE.PointsMaterial({color:0xf2d38a,size:.05,transparent:true,opacity:.85,depthWrite:false}));arc.frustumCulled=false;arc.visible=false;scene.add(arc);
@@ -76,19 +78,21 @@ export function rodToDesk(){if(rod.root.parent!==deskMount){if(rodItem.body.worl
 export function rodOffDesk(){if(rodItem.desk){rodItem.desk=false;toHolster(rodItem);}}
 export const rodInHand=()=>!!(rodItem.heldBy||rodItem.desk);
 const rodHand=()=>rodItem.heldBy&&rodItem.heldBy!==true?rodItem.heldBy:null;
+const freeHand=()=>{const r=rodHand();return r?(r===HANDS.left?HANDS.right:HANDS.left):offHand();};
 const railW=()=>boat.localToWorld(RAIL.clone());
 export const tipW=(out=V())=>rod.tip.getWorldPosition(out);
 const snapPoint=out=>{tipW(out);out.y-=.35;return out;};
-function setBail(open){if((F.bail==='open')===open)return;F.bail=open?'open':'closed';sfx.tie();buzzHand('main',.35,25);}
+function setBail(open){if((F.bail==='open')===open)return;F.bail=open?'open':'closed';sfx.tie();hapPulse(rodHand(),.35,25);}
 
 export function tieLure(id){
   if(F.state!=='ready'){msg('Сначала смотайте леску','',1.2);return;}
-  F.lureId=id;F.hasLure=true;setLureModel(id);sfx.tie();buzzHand('off',.4,40);msg(LU[id].name,'Привязана',1.1);
+  F.lureId=id;F.hasLure=true;setLureModel(id);sfx.tie();hapPulse(freeHand(),.4,40);msg(LU[id].name,'Привязана',1.1);
 }
 export function launchLure(dir,power,vel){
   tipW(F.lure);
   if(vel)F.lureVel.copy(vel);
   else{const D=5+power*36,v=Math.sqrt(D*9.8/.94)*.9,a=.6;F.lureVel.copy(dir).multiplyScalar(v*Math.cos(a));F.lureVel.y=v*Math.sin(a);}
+  if(vel)F.lureVel.multiplyScalar(lerp(.86,1.14,smooth(9,60,LU[F.lureId].mass)));
   F.lureVel.addScaledVector(wind,S.storm*2.2);F.state='flying';F.line=.4;F.bail='open';F.feather=false;sfx.whoosh();bend.kick(-1.2);arc.visible=false;ringMark.visible=false;
   S.fn.tut?.('cast');
 }
@@ -97,7 +101,7 @@ export function launchLure(dir,power,vel){
 function speciesWeight(sp){
   if(S.storm<sp.storm[0])return 0;
   const d=F.depth;let fd=1;if(d<sp.depth[0])fd=Math.exp(-(sp.depth[0]-d)/5);else if(d>sp.depth[1])fd=Math.exp(-(d-sp.depth[1])/5);
-  const L=LU[F.lureId];const fr=F.lureId==='bait'?1:clamp(1-Math.abs(F.act-sp.retrieve)*.9,.08,1);
+  const L=LU[F.lureId];const fr=clamp(.25+.75*F.pres,.08,1)*(L.still?1:clamp(1-Math.abs(F.act-sp.retrieve)*.45,.4,1));
   const near=F.lure.distanceTo(V(hotspot.pos.x,F.lure.y,hotspot.pos.z))<9&&S.storm<.82;
   let w=sp.w*fd*fr*(near?(sp.hot||1.3):1)*(L.mult[sp.id]??1);
   if(sp.id==='eel'&&S.flashT>-2.5)w*=2.5;if(sp.id==='tuna')w*=.6+S.storm;return w;
@@ -122,14 +126,14 @@ function startBite(){
 let biteLoad=0;
 function updateBite(dt){
   const B=F.bite;const prev=B.t;B.t+=dt;const inHand=rodInHand();
-  while(B.tapI<B.taps.length&&B.t>=B.taps[B.tapI]){bend.kick(.5);sfx.tap(.7);buzzHand('main',.35,40);B.tapI++;}
+  while(B.tapI<B.taps.length&&B.t>=B.taps[B.tapI]){bend.kick(.5);sfx.tap(.7);hapPulse(rodHand(),.35,40);B.tapI++;}
   biteLoad=0;
   if(B.pull&&B.t<B.strike)biteLoad=.35*smooth(B.pull[0],B.pull[1],B.t);
-  if(B.hold&&B.t<B.strike){biteLoad=.45;if(Math.random()<dt*3)buzzHand('main',.2,30);}
-  if(B.buzz&&B.t<B.strike){if(Math.random()<dt*25){bend.kick(rand(-.15,.15));sfx.buzz();buzzHand('main',.25,20);}}
+  if(B.hold&&B.t<B.strike){biteLoad=.45;if(Math.random()<dt*3)hapPulse(rodHand(),.2,30);}
+  if(B.buzz&&B.t<B.strike){if(Math.random()<dt*25){bend.kick(rand(-.15,.15));sfx.buzz();hapPulse(rodHand(),.25,20);}}
   if(prev<B.strike&&B.t>=B.strike){
     if(B.quit){F.bite=null;F.biteCheck=2;return;}
-    B.struck=true;bend.kick(1.3);sfx.thump(.9);buzzHand('main',.9,120);
+    B.struck=true;bend.kick(1.3);sfx.thump(.9);hapPulse(rodHand(),.9,120);
     if(F.bail==='open'){msg('Рыба берёт леску!','Дужка открыта: проверните катушку, чтобы закрыть её, и подсекайте',2);}
     if(!inHand){if(B.sp.str>=.5||Math.random()<.35){hookFish(true);return;}else msg('Клюёт! Удочка в держателе','Возьмите её',1.6);}
   }
@@ -138,11 +142,24 @@ function updateBite(dt){
 export function tryHook(){
   const B=F.bite;
   if(F.bail==='open'&&F.state==='water'){msg('Дужка открыта','Сначала проверните катушку, чтобы её закрыть',1.4);return;}
-  if(!B){if(F.state==='water'){F.depth=Math.max(0,F.depth-1.2);F.act=Math.min(1,F.act+.4);bend.kick(-.6);}return;}
+  if(!B){if(F.state==='water'){F.depth=Math.max(0,F.depth-(LU[F.lureId].hop?2.4:1.2));F.act=Math.min(1,F.act+.4);F.hops++;F.hopT=0;bend.kick(-.6);hapPulse(rodHand(),.3,30);}return;}
   if(B.t<B.strike-.06){if(Math.random()<.55){F.bite=null;F.biteCheck=2.5;msg('Рано!','Рыба почувствовала крючок и ушла',1.6);}else msg('Рано!','',1);return;}
   if(B.struck&&B.t<=B.strike+B.win+.6)hookFish(false);
 }
 
+/* ---------- what the rod hand feels from the fish (a signature per way of swimming) ---------- */
+function fishHaptics(dt,f){
+  const rh=rodHand();if(!rh)return;const tn=clamp(F.tension/lineStrength(),0,1.3);
+  if(F.state==='landing'){hapCont(rh,.18+.1*Math.abs(Math.sin(f.t*9)));return;}
+  if(f.air)return;                                              // airborne: nothing on the line
+  if(F.tension<.05)return;                                      // slack line is silence: reel in
+  hapCont(rh,.05+.5*Math.min(1,tn));                            // steady hum that follows the strain
+  f.hapAcc=(f.hapAcc||0);
+  if(f.mode==='zig'||f.mode==='shake'){f.hapAcc+=dt*(f.mode==='shake'?14:10);while(f.hapAcc>=1){f.hapAcc-=1;hapPulse(rh,.22+.35*tn,18);}}
+  else if(f.mode==='dive'||f.sp.str>=.6){f.hapAcc+=dt*2.6;while(f.hapAcc>=1){f.hapAcc-=1;hapPulse(rh,.55+.3*tn,80);}}
+  else if(f.mode==='run')hapCont(rh,.12+.35*tn);
+  else f.hapAcc=0;
+}
 /* ---------- the hooked fish: a body in the water ---------- */
 function hookFish(self){
   const B=F.bite;F.bite=null;biteLoad=0;const r=railW();
@@ -150,7 +167,7 @@ function hookFish(self){
   const fish={sp:B.sp,sizeT:B.sizeT,len:B.len,kg:B.kg,str:B.sp.str*(.7+.6*B.sizeT),pos,vel:V(),stamina:1,mode:'run',modeT:1.2,t:0,side:Math.random()<.5?-1:1,
     air:false,prefDepth:lerp(B.sp.depth[0],B.sp.depth[1],.5),mass:.7+B.kg/15};
   F.fish=fish;F.state='hooked';F.slackT=0;F.breakT=0;F.line=Math.max(F.line,tipW(V()).distanceTo(pos)*.98);F.bail='closed';
-  sfx.thump(1);buzzHand('main',1,150);bend.kick(1.6);
+  sfx.thump(1);hapPulse(rodHand(),1,150);bend.kick(1.6);
   msg(self?'Рыба засеклась сама!':'Есть!',self?'Скорее берите удочку':'Держите удилище вверх, следите за кольцом на катушке',1.8);
   const rec=newFish(fish.sp,fish.len,fish.kg);const ob=buildFish(rec);const holder=new THREE.Group();const inner=new THREE.Group();
   if(fish.sp.fam!=='flat')inner.rotation.x=-Math.PI/2;inner.add(ob.g);holder.add(inner);holder.visible=false;scene.add(holder);F.swim={holder,ob};
@@ -203,7 +220,7 @@ function updateFight(dt){
   const elastic=.02*F.line+.06+(rodInHand()?.35*flex:.05);
   let T=Math.max(0,dist-F.line)/elastic;
   const D=F.drag;
-  if(T>D){const slip=(T-D)*elastic;F.line+=slip;F.slipAcc+=slip;T=D;if(F.slipAcc>.2){F.slipAcc=0;sfx.ratchet();buzzHand('off',.35,20);}}
+  if(T>D){const slip=(T-D)*elastic;F.line+=slip;F.slipAcc+=slip;T=D;if(F.slipAcc>.2){F.slipAcc=0;sfx.ratchet();hapPulse(freeHand(),.4,20);hapPulse(rodHand(),.3,20);}}
   // reeling shortens the line, harder the more the fish pulls
   if(F.reel>0){const g=F.reel*2.4*reelMult()*clamp(1-.75*T/D,.08,1)*dt;F.line=Math.max(1.2,F.line-g);F.clickAcc+=g;}
   if(!f.air)_a.addScaledVector(toTip,T*A);
@@ -211,12 +228,13 @@ function updateFight(dt){
   // water surface and depth limits
   const surf2=waveH(f.pos.x,f.pos.z);
   if(f.mode==='jump'&&!f.air&&f.pos.y>surf2-.6&&f.vel.y>0){f.air=true;f.vel.y=4.5+f.str*2;splash(f.pos,18,4,1.2);sfx.splash(1.2);}
-  if(f.air){if(f.pos.y<surf2&&f.vel.y<0){f.air=false;f.mode='run';f.modeT=1.4;f.vel.multiplyScalar(.3);splash(f.pos,22,4.5,1.3);sfx.splash(1.4);bend.kick(1);}}
+  if(f.air){if(f.pos.y<surf2&&f.vel.y<0){f.air=false;f.mode='run';f.modeT=1.4;f.vel.multiplyScalar(.3);splash(f.pos,22,4.5,1.3);sfx.splash(1.4);bend.kick(1);hapPulse(rodHand(),.9,90);}}
   else{if(f.pos.y>surf2-.05){f.pos.y=surf2-.05;f.vel.y=Math.min(0,f.vel.y);}if(f.pos.y<surf2-(sp.depth[1]+6)){f.pos.y=surf2-(sp.depth[1]+6);f.vel.y=Math.max(0,f.vel.y);}}
   F.tension=damp(F.tension,f.air?T*.15:T,14,dt);F.depth=Math.max(0,surf2-f.pos.y);
+  fishHaptics(dt,f);
   const LS=lineStrength();
   if(F.tension>LS)F.breakT+=dt;else F.breakT=Math.max(0,F.breakT-dt);
-  if(F.breakT>.22){sfx.snap();buzzHand('main',1,200);bend.kick(-1.5);loseFish('Леска лопнула!','Кольцо было красным. Ослабьте фрикцион и держите удилище под углом к леске',true);return;}
+  if(F.breakT>.22){sfx.snap();hapPulse(rodHand(),1,200);bend.kick(-1.5);loseFish('Леска лопнула!','Кольцо было красным. Ослабьте фрикцион и держите удилище под углом к леске',true);return;}
   if(F.tension<.05)F.slackT+=dt;else F.slackT=Math.max(0,F.slackT-dt*2);
   if(F.slackT>((f.air||f.mode==='shake')?1.0:2.4)){loseFish('Сошла','Леска провисла. Подматывайте, когда рыба идёт к вам');return;}
   if(F.line>150){sfx.snap();loseFish('Катушка пуста','Рыба смотала всю леску. Затяните фрикцион',true);return;}
@@ -236,7 +254,7 @@ function takeFishOut(){
   ob.g.removeFromParent();scene.remove(sw.holder);ob.g.position.set(0,0,0);ob.g.quaternion.identity();
   const jr=save.journal[f.sp.id]||{n:0,best:0};const isRec=f.kg>jr.best;jr.n++;jr.best=Math.max(jr.best,f.kg);save.journal[f.sp.id]=jr;persist();
   const sub=fmtKg(f.kg)+' кг'+(isRec?' · рекорд!':'')+(f.sizeT>1?' · трофей':'');msg(f.sp.name,sub,2);
-  sfx.splash(.8);splash(w,14,3,1);buzzHand('main',.8,120);
+  sfx.splash(.8);splash(w,14,3,1);hapPulse(rodHand(),.8,120);
   return {ob,w,f,sub};
 }
 export function liftOrNet(){
@@ -255,7 +273,7 @@ export function liftOrNet(){
 }
 function netCatch(){
   const {ob}=takeFishOut();net.content.add(ob.g);ob.g.position.set(0,0,0);ob.g.quaternion.setFromEuler(new THREE.Euler(0,Math.PI/2,0));
-  F.netted={ob};sfx.splash(1);buzzHand('off',.8,100);
+  F.netted={ob};sfx.splash(1);hapPulse(freeHand(),.8,100);
   msg('В подсаке!','Достаньте рыбу рукой или переверните подсак над палубой',1.8);S.fn.tut?.('netted');
 }
 function releaseNetted(){const n=F.netted;if(!n)return null;F.netted=null;const ob=n.ob;boat.attach(ob.g);return addPiece(ob);}
@@ -268,13 +286,12 @@ S.fn.handGrabSpecial=h=>{
   if(F.dangle&&h!==rh){const it=F.dangle.it;const fp=it.obj.localToWorld(it.com.clone());if(hp.distanceTo(fp)<.5){snapToHand(it,hp);grabPiece(h,it);return true;}}
   if(rh&&rh!==h&&save.reelMode==='hand'&&hp.distanceTo(rod.knob.getWorldPosition(V()))<.15){
     crank.held=true;crank.hand=h;h.crank=true;crank.prevA=crankHandAngle(hp);crank.prevQ=h.grip.getWorldQuaternion(new THREE.Quaternion());
-    h.mitt&&(h.mitt.visible=false);rod.knobHand.visible=true;buzzHand(h===mainHand()?'main':'off',.3,30);S.fn.tut?.('crank');return true;}
+    h.mitt&&(h.mitt.visible=false);rod.knobHand.visible=true;hapPulse(h,.3,30);S.fn.tut?.('crank');return true;}
   if(F.netted&&!(netItem.heldBy===h)){const b=new THREE.Box3().setFromObject(F.netted.ob.g).expandByScalar(.06);if(b.containsPoint(hp)){const it=releaseNetted();if(it){grabPiece(h,it);return true;}}}
   if(F.state==='ready'){
-    const sp=snapPoint(V());let id=null;
-    if(F.hasLure&&hp.distanceTo(sp)<.15){id=F.lureId;F.hasLure=false;setLureModel(null);}
-    else for(const t of tackleSlots){if(hp.distanceTo(t.slot.getWorldPosition(V()))<.07){id=t.lure.id;break;}}
-    if(id){const m=lureModel(LU[id]);m.name='heldLure';h.grip.add(m);m.position.set(0,-.02,-.05);h.heldLure=id;sfx.tie();return true;}
+    const end=rope.p[ROPE_N-1];
+    if(F.hasLure&&hp.distanceTo(end)<.13){F.lureHold=h;hapPulse(h,.35,30);sfx.pick();msg('Держите приманку','Курком отстегните её от карабина',1.6);S.fn.tut?.('lurehold');return true;}
+    for(const t of tackleSlots){if(hp.distanceTo(t.slot.getWorldPosition(V()))<.07){takeLure(h,t.lure.id);return true;}}
   }
   return false;
 };
@@ -298,13 +315,19 @@ function updateCrank(dt){
   const fight=F.state==='hooked'||F.state==='landing';const load=fight?clamp(F.tension/F.drag,0,1):0;
   const who=h===mainHand()?'main':'off';
   d*=1-.7*load;crank.angle+=d;crank.rate=damp(crank.rate,Math.abs(d)/Math.max(dt,1e-3),10,dt);crank.acc+=Math.abs(d);
-  if(crank.acc>Math.PI/4){crank.acc=0;sfx.click(.07+load*.08);buzzHand(who,.15+load*.45,10+load*25);}
-  if(fight&&load>.97&&Math.random()<dt*20)buzzHand(who,.6,15);
+  if(crank.acc>Math.PI/4){crank.acc=0;sfx.click(.07+load*.08);hapPulse(h,.15+load*.45,10+load*25);}
+  if(fight&&load>.97&&Math.random()<dt*20)hapPulse(h,.6,15);
 }
+function takeLure(h,id){const m=lureModel(LU[id]);m.name='heldLure';h.grip.add(m);m.position.set(0,-.02,-.05);h.heldLure=id;sfx.pick();hapPulse(h,.3,25);}
 function updateHeldLures(){
+  // a lure held on the line: trigger = unclip (click), letting go = it hangs again
+  if(F.lureHold){const h=F.lureHold;const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const trig=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6);
+    if(!sq||F.state!=='ready'){F.lureHold=null;}
+    else if(trig&&!h.lureTrigPrev){F.hasLure=false;const id=F.lureId;setLureModel(null);F.lureHold=null;takeLure(h,id);sfx.tie();hapPulse(h,.7,45);msg('Приманка отстёгнута','Поднесите любую к карабину, чтобы пристегнуть',1.8);}
+    h.lureTrigPrev=trig;}
   for(const h of Object.values(HANDS)){if(!h||!h.heldLure)continue;const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const hp=h.grip.getWorldPosition(V());
-    const sp=snapPoint(V());
-    if(F.state==='ready'&&!F.hasLure&&hp.distanceTo(sp)<.15){tieLure(h.heldLure);const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;continue;}
+    const sp=rope.p[ROPE_N-1];
+    if(F.state==='ready'&&!F.hasLure&&hp.distanceTo(sp)<.09){tieLure(h.heldLure);hapPulse(h,.7,40);const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;continue;}
     if(!sq){const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;}}
 }
 
@@ -319,7 +342,7 @@ function updateBend(dt){
   let acc=V();if(bend.prevMid){const vel=_mid.clone().sub(bend.prevMid).divideScalar(Math.max(dt,1e-3));acc=vel.clone().sub(bend.prevVel).divideScalar(Math.max(dt,1e-3));bend.prevVel.copy(vel);}bend.prevMid=_mid.clone();
   acc.clampLength(0,200);const accL=acc.applyQuaternion(qi);
   // line load
-  const load=V();const T=(F.state==='hooked'||F.state==='landing')?F.tension:biteLoad+(F.dangle?.25:0)+(F.state==='ready'||F.state==='wind'?.02:0);
+  const load=V();const T=(F.state==='hooked'||F.state==='landing')?F.tension:biteLoad+(F.dangle?.25:0)+(F.state==='ready'||F.state==='wind'?.01+LU[F.lureId].mass*.0005:0);
   if(T>0){lineTarget(_lt);tipW(_tip);const dir=_lt.sub(_tip).normalize().applyQuaternion(qi);load.set(dir.x,0,dir.z).multiplyScalar(T*1.1+ (dir.y<0?T*.3:0));}
   const K=140,C=11;
   const f=V(load.x*K-accL.x*.045*K-bend.b.x*K-bend.v.x*C,0,load.z*K-accL.z*.045*K-bend.b.z*K-bend.v.z*C);
@@ -336,20 +359,23 @@ function lineTarget(out){
   return snapPoint(out);
 }
 function updateRope(dt){
-  const A=tipW(V()),B=lineTarget(V());const dist=A.distanceTo(B);
-  let rest=F.state==='ready'||F.state==='wind'?.35:(F.state==='hooked'||F.state==='landing')?Math.max(F.line,0):Math.max(F.line,dist);
-  rest=Math.max(rest,dist*.999);
+  const hang=(F.state==='ready'||F.state==='wind')&&!F.lureHold;     // the lure just hangs on the line like a pendulum
+  const A=tipW(V()),B=F.lureHold?F.lureHold.grip.getWorldPosition(V()):lineTarget(V());const dist=A.distanceTo(B);
+  let rest=hang?Math.max(F.line,.3):(F.state==='hooked'||F.state==='landing')?Math.max(F.line,0):Math.max(F.line,dist);
+  if(!hang)rest=Math.max(rest,dist*.999);
   if(!rope.ok){for(let i=0;i<ROPE_N;i++){rope.p[i].lerpVectors(A,B,i/(ROPE_N-1));rope.o[i].copy(rope.p[i]);}rope.ok=true;}
   const seg=rest/(ROPE_N-1);const g=-9.8*dt*dt;
-  for(let i=1;i<ROPE_N-1;i++){const p=rope.p[i],o=rope.o[i];const sw=waveH(p.x,p.z);const inW=p.y<sw;
+  const iEnd=hang?ROPE_N:ROPE_N-1;const LUm=LU[F.lureId];
+  for(let i=1;i<iEnd;i++){const p=rope.p[i],o=rope.o[i];const sw=waveH(p.x,p.z);const inW=p.y<sw;
     const vx=(p.x-o.x)*(inW?.55:.985),vy=(p.y-o.y)*(inW?.55:.985),vz=(p.z-o.z)*(inW?.55:.985);o.copy(p);p.x+=vx;p.y+=vy+(inW?g*.15:g);p.z+=vz;
     if(F.state==='flying'&&!inW){p.addScaledVector(wind,S.storm*.3*dt*dt*40);} }
-  rope.p[0].copy(A);rope.p[ROPE_N-1].copy(B);
+  rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);
   for(let it=0;it<12;it++){
     for(let i=0;i<ROPE_N-1;i++){const a=rope.p[i],b=rope.p[i+1];_v1.subVectors(b,a);const l=_v1.length()||1e-6;const diff=(l-seg)/l;
-      if(i===0)b.addScaledVector(_v1,-diff);else if(i+1===ROPE_N-1)a.addScaledVector(_v1,diff);else{a.addScaledVector(_v1,diff*.5);b.addScaledVector(_v1,-diff*.5);}}
-    rope.p[0].copy(A);rope.p[ROPE_N-1].copy(B);
+      if(i===0)b.addScaledVector(_v1,-diff);else if(i+1===ROPE_N-1&&!hang)a.addScaledVector(_v1,diff);else{a.addScaledVector(_v1,diff*.5);b.addScaledVector(_v1,-diff*.5);}}
+    rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);
   }
+  if(hang||F.state==='ready'){F.lure.copy(rope.p[ROPE_N-1]);}
   const pa=lineGeo.attributes.position;for(let i=0;i<ROPE_N;i++)pa.setXYZ(i,rope.p[i].x,rope.p[i].y,rope.p[i].z);pa.needsUpdate=true;
 }
 
@@ -373,7 +399,7 @@ export function fishingVR(dt){
         for(let j=i;j<ARC_N;j++)pa.setXYZ(j,p.x,p.y,p.z);pa.needsUpdate=true;arc.visible=true;
         if(land){ringMark.position.set(land.x,waveH(land.x,land.z)+.05,land.z);ringMark.visible=true;}}
       else{arc.visible=false;ringMark.visible=false;}
-      if(!trig){const sp2=tipVelS.length();if(sp2>1.2){launchLure(null,0,v);buzzHand('main',.3,30);}
+      if(!trig){const sp2=tipVelS.length();if(sp2>1.2){launchLure(null,0,v);hapPulse(rodHand(),.3,30);}
         else{F.state='ready';setBail(false);arc.visible=false;ringMark.visible=false;msg('Слабый замах','Зажмите курок (палец на леске), махните и отпустите на взмахе',2);}}
     }
     // feathering: finger back on the spool slows the lure in the air
@@ -386,6 +412,32 @@ export function fishingVR(dt){
     if(zdir.y>.55||!netItem.heldBy&&!netItem.inHolster){releaseNetted();msg('Рыба на палубе','',1);}}
   if(F.dangle){const tgt=boat.worldToLocal(rodHand()?rod.root.localToWorld(V(0,.95,0)):tipW(V()));F.dangle.p.lerp(tgt,1-Math.exp(-3*dt));const kp=F.dangle.p;F.dangle.kin.position.set(kp.x,kp.y,kp.z);F.dangle.it.body.wakeUp();}
 }
+/* ---------- how each lure plays underwater, how well it is being fished, and what the rod hand feels ---------- */
+function lurePlay(dt,L,reeling,maxD){
+  const rh=rodHand();
+  F.act=damp(F.act,clamp(F.reel,0,1),1.6,dt);
+  // pauses: a stop of at least 0.4 s followed by moving again is a "pause" that makes the lure fall and play
+  if(!reeling){F.pauseT+=dt;}else{if(F.pauseT>.4&&F.pauseT<3)F.pauseBonus=3;F.pauseT=0;}
+  F.pauseBonus=Math.max(0,F.pauseBonus-dt);F.hopT+=dt;if(F.hopT>6)F.hops=Math.max(0,F.hops-dt*.5);
+  let pres=.2;
+  if(L.still)pres=!reeling&&F.depth>=maxD-.5?.95:reeling?.15:.5;
+  else if(L.hop)pres=.15+.85*smooth(0,3,F.hops)*(F.hopT<4?1:.4);
+  else if(L.vibe)pres=clamp(1-Math.abs(F.act-L.best)*1.8,.1,1)*(F.pauseBonus>0?1:.8)+(F.pauseBonus>0?.15:0);
+  else if(L.tail)pres=clamp(1-Math.abs(F.act-L.best)*2.2,.1,1);
+  else pres=clamp(1-Math.abs(F.act-L.best)*1.6,.1,1)+(F.pauseBonus>0?.25:0);
+  F.pres=damp(F.pres,clamp(pres,0,1),2,dt);
+  // feel in the rod hand
+  if(!rh)return;
+  if(L.flutter&&F.depth>.3){F.wobT+=dt*(reeling?2.2:1.1);while(F.wobT>=1){F.wobT-=1;hapPulse(rh,.2,40);bend.kick(.12);}}   // each roll of the spoon
+  if(L.vibe&&reeling&&F.depth>.2){hapCont(rh,.14+.12*F.act);F.wobT+=dt*18;while(F.wobT>=1){F.wobT-=1;hapPulse(rh,.2,12);}}  // fine buzz
+  if(L.tail&&reeling){hapCont(rh,.07+.05*F.act);}
+  if(L.hop||L.still){
+    if(!F.bottomHit&&F.depth>=maxD-.15&&!reeling){F.bottomHit=true;hapPulse(rh,.6,35);bend.kick(.5);sfx.tap(.5);}                 // knock on the bottom
+    if(reeling||F.depth<maxD-1)F.bottomHit=false;
+    if(L.hop&&!reeling&&F.depth<maxD-.3)hapCont(rh,.0);                                                                              // falling: slack, silence
+  }
+  if(!L.still&&!L.hop&&!L.vibe&&!L.tail&&reeling)hapCont(rh,.05);
+}
 /* ---------- per-frame, both ---------- */
 export function updateFishing(dt){
   const r=railW();
@@ -393,24 +445,29 @@ export function updateFishing(dt){
     case 'wind':F.charge=Math.min(1,F.charge+dt/1.1);break;
     case 'flying':{
       if(F.feather){F.lureVel.x*=Math.exp(-3*dt);F.lureVel.z*=Math.exp(-3*dt);}
+      F.lureVel.multiplyScalar(Math.exp(-LU[F.lureId].air*dt));
       F.lureVel.y-=9.8*dt;F.lure.addScaledVector(F.lureVel,dt);F.line=Math.max(F.line,tipW(V()).distanceTo(F.lure)*1.02);
-      rod.spool.rotation.y+=dt*40;const h=waveH(F.lure.x,F.lure.z);
+      rod.spool.rotation.y+=dt*40;hapCont(rodHand(),.12+(F.feather?.12:0));const h=waveH(F.lure.x,F.lure.z);
       if(F.lure.y<=h&&F.lureVel.y<0){const dist=Math.hypot(F.lure.x-r.x,F.lure.z-r.z);
         if(dist<3||F.lure.z>r.z+.3){F.state='ready';setBail(false);msg('Приманка упала у борта','Махните сильнее и в сторону моря',1.4);break;}
-        F.state='water';F.depth=0;F.waterT=0;F.act=0;F.biteCheck=1.2;F.lure.y=h;sfx.splash(.5);splash(F.lure,8,2,.5);
+        F.state='water';F.depth=0;F.waterT=0;F.act=0;F.pres=.3;F.pauseT=0;F.pauseBonus=0;F.hops=0;F.hopT=99;F.bottomHit=false;F.bottom=clamp(6+dist*.55+(Math.sin(F.lure.x*.7)+Math.cos(F.lure.z*.5))*3,8,44);F.biteCheck=1.2;F.lure.y=h;hapPulse(rodHand(),.5,60);sfx.splash(.5);splash(F.lure,8,2,.5);
         if(!renderer.xr.isPresenting)F.bail='closed';
         else msg('Приманка в воде','Проверните катушку: дужка закроется, и можно вести',1.6);}
       break;}
     case 'water':{F.waterT+=dt;const L=LU[F.lureId];const dx=r.x-F.lure.x,dz=r.z-F.lure.z,dist=Math.hypot(dx,dz);
-      if(F.reel>.05&&F.bail==='closed'){const spd=(F.bite?1.2:3.4)*F.reel*reelMult();F.lure.x+=dx/dist*spd*dt;F.lure.z+=dz/dist*spd*dt;
-        if(L.sink<0)F.depth=Math.min(L.maxD,F.depth+1.6*F.reel*dt);else F.depth=Math.max(0,F.depth-F.reel*1.6*dt);
+      const reeling=F.reel>.05&&F.bail==='closed';const maxD=Math.min(L.maxD,F.bottom);
+      if(reeling){const spd=(F.bite?1.2:3.4)*F.reel*reelMult();F.lure.x+=dx/dist*spd*dt;F.lure.z+=dz/dist*spd*dt;
+        if(L.sink<0)F.depth=Math.min(L.maxD,F.depth+1.6*F.reel*dt);else F.depth=Math.max(0,F.depth-F.reel*(L.hop?2.4:1.6)*dt);
         F.clickAcc+=spd*dt;if(F.clickAcc>.3&&!crank.held){F.clickAcc=0;sfx.click(.07);}}
-      else{if(L.sink<0)F.depth=Math.max(0,F.depth+L.sink*dt);else F.depth=Math.min(L.maxD,F.depth+L.sink*dt);}
-      F.lure.addScaledVector(wind,S.storm*.35*dt);F.lure.y=waveH(F.lure.x,F.lure.z);F.act=damp(F.act,F.reel>.2?1:0,1.2,dt);
-      F.line=tipW(V()).distanceTo(F.lure)+(F.bail==='open'?1.5+F.depth*.3:F.reel>.05?0:.4+F.depth*.15);
-      if(dist<2.6&&!F.bite){F.state='ready';break;}
+      else{if(L.sink<0)F.depth=Math.max(0,F.depth+L.sink*dt);else F.depth=Math.min(maxD,F.depth+L.sink*dt);}
+      lurePlay(dt,L,reeling,maxD);
+      F.lure.addScaledVector(wind,S.storm*.35*dt);F.lure.y=waveH(F.lure.x,F.lure.z);
+      F.line=tipW(V()).distanceTo(F.lure)+(F.bail==='open'?1.5+F.depth*.3:reeling?0:.4+F.depth*.15);
+      // brought up to the boat: it climbs out of the water and hangs under the rod tip, no jump
+      if(dist<1.7&&reeling&&!F.bite){F.state='ready';F.depth=0;F.line=Math.max(.5,tipW(V()).distanceTo(F.lure));F.lureVel.set(0,0,0);break;}
       if(F.bite)updateBite(dt);else{biteLoad=0;F.biteCheck-=dt;if(F.biteCheck<=0&&F.waterT>1.5){F.biteCheck=.5;startBite();}}
       break;}
+    case 'ready':if(F.reel>.05&&F.bail==='closed'&&F.line>.4&&!F.lureHold){F.line=Math.max(.4,F.line-F.reel*2.4*reelMult()*dt);F.clickAcc+=F.reel*dt*2;if(F.clickAcc>.3&&!crank.held){F.clickAcc=0;sfx.click(.07);}}break;
     case 'hooked':case 'landing':updateFight(dt);break;
   }
   if(F.swim&&F.fish){
@@ -439,7 +496,13 @@ export function updateRodLine(dt){
   rod.bail.rotation.y=damp(rod.bail.rotation.y,F.bail==='open'?2.6:0,18,dt);
   const end=rope.p[ROPE_N-1];
   lure.visible=F.hasLure&&!F.dangle&&F.state!=='hooked'&&F.state!=='landing'&&!(F.state==='water'&&F.depth>.3);
-  lure.position.copy(end);lure.rotation.y+=dt*(F.state==='ready'?1.5:12);
+  lure.position.copy(end);
+  // the lure hangs from the line: its top points along the last segment
+  _v1.subVectors(rope.p[ROPE_N-2],end).normalize();lure.quaternion.setFromUnitVectors(UP,_v1);
+  if(lureMesh){lureMesh.rotation.y+=dt*(F.state==='ready'?1.2:(LU[F.lureId].vibe?30:6));
+    const tl=lureMesh.userData.tail;if(tl)tl.rotation.z=Math.sin(S.T*(8+F.act*10))*(.25+.45*F.act);}
+  clip.visible=!F.hasLure&&F.state==='ready';clip.position.copy(end);clip.quaternion.copy(lure.quaternion);
+  if(F.lureHold&&F.hasLure){/* carabiner stays on the line while a hand holds the lure */}
   const fight=F.state==='hooked'||F.state==='landing';const t=fight?F.tension/lineStrength():0;
   ringCol.setHex(!fight?0x3a8f6a:t<.6?0x4fd18b:t<.85?0xf2c14e:0xe0473a);rod.ring.material.color.copy(ringCol);
   rod.ring.scale.setScalar(fight&&t>.85?1+.15*Math.abs(Math.sin(S.T*18)):1);

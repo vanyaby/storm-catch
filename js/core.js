@@ -20,7 +20,7 @@ export const S={T:0,AMP:.18,storm:.05,rainI:0,flashT:0,gameState:'menu',view:'se
 
 /* ---------------- save + upgrades ---------------- */
 const SAVE_KEY='storm-catch-v1';
-export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0,detail:'high'};
+export let save={money:0,line:0,knife:0,reel:0,journal:{},trips:0,comfort:0.4,reelMode:'hand',rodHand:'right',move:'smooth',tutorial:0,detail:'high',hapticGain:1};
 try{const s=JSON.parse(localStorage.getItem(SAVE_KEY)||'null');if(s)save=Object.assign(save,s);}catch(e){}
 export function persist(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(save));}catch(e){}}
 export const UPG={
@@ -54,12 +54,18 @@ export const SPECIES=[
    str:.55,stam:10,agility:1.3,modes:['shake','zig','run'],depth:[0,25],retrieve:.5,storm:[.68,1],w:.6,bite:'buzz',window:.45},
 ];
 export const SP=Object.fromEntries(SPECIES.map(s=>[s.id,s]));
+/* every lure: weight (g), air drag, how it sinks, how deep it can go, what it does underwater, how to fish it */
 export const LURES=[
-  {id:'spoon',name:'Блесна',col:0xdfe4e6,metal:true,sink:1.9,maxD:45,mult:{mackerel:1.3,tuna:1.4}},
-  {id:'jig',name:'Джиг',col:0xe5642c,sink:3.4,maxD:45,mult:{cod:1.6,perch:1.5,halibut:1.2,mackerel:.5,tuna:.4}},
-  {id:'wobbler',name:'Воблер',col:0x3fbf6a,sink:-.6,maxD:3.5,mult:{mackerel:1.6,tuna:1.9,perch:.6,cod:.15,halibut:.1}},
-  {id:'bait',name:'Донка с наживкой',col:0xc8a070,sink:3.0,maxD:45,mult:{halibut:2.4,cod:1.5,perch:1.1,mackerel:.3,tuna:.2,eel:.6}},
-  {id:'glow',name:'Светящийся твистер',col:0x5be7ff,glow:true,sink:1.5,maxD:30,mult:{eel:2.6,mackerel:.6,tuna:.6}},
+  {id:'spoon',name:'Блесна-колебалка',mass:18,air:.12,col:0xdfe4e6,metal:true,sink:1.4,maxD:45,flutter:true,best:.6,mult:{mackerel:1.3,tuna:1.4},
+   hint:'Ведите ровно, иногда останавливайтесь: на падении она планирует, и рыба берёт на паузе'},
+  {id:'jig',name:'Джиг',mass:28,air:.05,col:0xe5642c,sink:3.6,maxD:45,hop:true,mult:{cod:1.6,perch:1.5,halibut:1.2,mackerel:.5,tuna:.4},
+   hint:'Дайте лечь на дно, потом резко подбрасывайте удилищем и давайте падать: играет только от рывков'},
+  {id:'wobbler',name:'Воблер',mass:9,air:.35,col:0x3fbf6a,sink:-.6,maxD:3.5,vibe:true,best:.85,mult:{mackerel:1.6,tuna:1.9,perch:.6,cod:.15,halibut:.1},
+   hint:'Плавает. Быстрая проводка загоняет его вглубь и заставляет дрожать, на паузе он всплывает'},
+  {id:'bait',name:'Донка с наживкой',mass:60,air:.1,col:0xc8a070,sink:3.2,maxD:45,still:true,mult:{halibut:2.4,cod:1.5,perch:1.1,mackerel:.3,tuna:.2,eel:.6},
+   hint:'Забросьте, дайте лечь на дно и ждите с натянутой леской: поклёвку почувствуете лучше всего'},
+  {id:'glow',name:'Светящийся твистер',mass:12,air:.22,col:0x5be7ff,glow:true,sink:1.2,maxD:30,tail:true,best:.3,mult:{eel:2.6,mackerel:.6,tuna:.6},
+   hint:'Ведите медленно, хвост играет сам. Лучше всего работает в шторм и ночью'},
 ];
 export const LU=Object.fromEntries(LURES.map(l=>[l.id,l]));
 
@@ -199,9 +205,9 @@ export function lureModel(l){
   switch(l.id){
     case 'spoon':body=new THREE.Mesh(new THREE.OctahedronGeometry(.03,0),m);body.scale.set(.5,1.4,.25);break;
     case 'jig':body=new THREE.Mesh(new THREE.SphereGeometry(.014,6,4),m);{const t=new THREE.Mesh(new THREE.ConeGeometry(.01,.05,5),Mat(0xf2e3a0));t.position.y=-.03;t.rotation.x=Math.PI;g.add(t);}break;
-    case 'wobbler':body=new THREE.Mesh(new THREE.CapsuleGeometry(.011,.045,3,6),m);break;
+    case 'wobbler':body=new THREE.Mesh(new THREE.CapsuleGeometry(.011,.045,3,6),m);{const lip=new THREE.Mesh(new THREE.BoxGeometry(.022,.002,.016),Mat(0xdddddd,{transparent:true,opacity:.75}));lip.position.set(0,.03,.008);lip.rotation.x=-.5;g.add(lip);}break;
     case 'bait':body=new THREE.Mesh(new THREE.IcosahedronGeometry(.016,0),m);{const s=new THREE.Mesh(new THREE.SphereGeometry(.012,6,4),Mat(0x555a5c,{metalness:.6}));s.position.y=.06;g.add(s);}break;
-    case 'glow':body=new THREE.Mesh(new THREE.CylinderGeometry(.007,.002,.06,5),m);break;
+    case 'glow':body=new THREE.Mesh(new THREE.SphereGeometry(.011,6,5),m);{const tail=new THREE.Mesh(new THREE.ConeGeometry(.007,.07,5),m);tail.position.y=-.045;tail.rotation.x=Math.PI;g.add(tail);g.userData.tail=tail;}break;
   }
   g.add(body);const h=new THREE.Mesh(new THREE.ConeGeometry(.005,.022,4),Mat(0xc22a2a));h.position.y=-.05;h.rotation.x=Math.PI;g.add(h);
   return g;

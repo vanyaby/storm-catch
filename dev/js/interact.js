@@ -1,6 +1,7 @@
 /* Hands and objects: take it, it stays in your hand, throw it. Pieces of fish, organs and tools. */
 import { THREE, S, V, UP, clamp, rand, damp, save, knifeMult, scene, camera, renderer, boat, TABLE, ICE, BUCKET, iceContent, bucketContent,
   HOLSTER, DECK_SPOT, fishRoot, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
+import { hapPulse, hapCont, hapBoth, bindHands } from './haptics.js';
 import { CANNON, world, G_STATIC, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
 import { M, carve, scrape, split, evaluate, massOf, matAt } from './voxel.js';
 const SKINS=[M.SKIN,M.SKIN2];
@@ -77,7 +78,7 @@ function link(a,b,anchor){
   const line=new THREE.Line(g,new THREE.LineBasicMaterial({color:0xa8484a}));line.frustumCulled=false;boat.add(line);
   const l={a,b,anchor:anchor.clone(),line};l.c=makeLinkConstraint(l);world.addConstraint(l.c);links.push(l);return l;
 }
-function unlink(l,silent){world.removeConstraint(l.c);boat.remove(l.line);l.line.geometry.dispose();links.splice(links.indexOf(l),1);if(!silent){sfx.squelch();buzzHand('off',.7,80);}}
+function unlink(l,silent){world.removeConstraint(l.c);boat.remove(l.line);l.line.geometry.dispose();links.splice(links.indexOf(l),1);if(!silent){sfx.squelch();hapBoth(.7,80);}}
 export function updateLinks(){
   for(const l of [...links]){
     if(l.a.body)l.b.body.wakeUp();
@@ -120,10 +121,7 @@ export function setHi(it,on){
 
 /* ---------- hands ---------- */
 export const HANDS={left:null,right:null};
-export function buzzHand(which,i,ms){
-  const h=which==='main'?mainHand():which==='off'?offHand():HANDS[which];
-  const a=h&&h.src&&h.src.gamepad&&h.src.gamepad.hapticActuators&&h.src.gamepad.hapticActuators[0];if(a&&a.pulse)try{a.pulse(clamp(i,0,1),ms);}catch(e){}
-}
+bindHands(HANDS);
 export const mainHand=()=>HANDS[save.rodHand==='left'?'left':'right'];
 export const offHand=()=>HANDS[save.rodHand==='left'?'right':'left'];
 export function handMatrixBoat(h,out){h.grip.updateMatrixWorld(true);boat.updateMatrixWorld(true);_m2.copy(boat.matrixWorld).invert();return out.multiplyMatrices(_m2,h.grip.matrixWorld);}
@@ -136,7 +134,7 @@ export function grabPiece(h,it){
   const hm=handMatrixBoat(h,new THREE.Matrix4());it.obj.updateMatrix();h.offset=new THREE.Matrix4().multiplyMatrices(hm.clone().invert(),it.obj.matrix);
   if(light){it.kinematic=true;it.body.type=CANNON.Body.KINEMATIC;it.body.updateMassProperties();it.body.velocity.setZero();it.body.angularVelocity.setZero();}
   else{it.kinematic=false;regrab(h);msg('Тяжёлая рыба','Возьмите второй рукой, чтобы поднять',1.4);}
-  sfx.pick();buzzHand(h===mainHand()?'main':'off',.4,30);
+  sfx.pick();hapPulse(h,.4,30);
   if(it.vobj&&it.vobj.open&&it.vobj.organs.length)setTimeout(()=>{if(it.heldBy)spillOrgans(it);},350);
 }
 function regrab(h){
@@ -186,14 +184,14 @@ export function updateHand(h,dt,gp){
   if(h.crank){h.prevSq=sq;return;}                       // the reel owns this hand while cranking
   if(!h.held){
     const n=nearestFor(h);const cand=n&&n.type!=='organIn'?n:null;
-    if(cand!==h.hover){if(h.hover&&h.hover.type)setHi(h.hover,false);h.hover=cand;if(cand){setHi(cand,true);buzzHand(h===mainHand()?'main':'off',.12,12);}}
+    if(cand!==h.hover){if(h.hover&&h.hover.type)setHi(h.hover,false);h.hover=cand;if(cand){setHi(cand,true);hapPulse(h,.12,12);}}
     if(sq&&!h.prevSq&&!S.fn.handGrabSpecial?.(h)){
       if(n&&n.type==='organIn'){const it=releaseOrgan(n.fish,n.org,false);if(it){sfx.squelch();grabPiece(h,it);}}
       else if(n&&n.type==='tool'){h.held=n;n.heldBy=h;setHi(n,false);if(n.body.world)world.removeBody(n.body);n.inHolster=false;
         if(n.follow)boat.attach(n.obj);
         else{h.grip.add(n.obj);n.obj.quaternion.copy(n.gripQuat);
           if(n.seg){const t=clamp(n._t??.16,.03,n.seg);n.obj.position.copy(V(0,1,0).applyQuaternion(n.gripQuat).multiplyScalar(-t)).add(V(0,-.02,0));}else n.obj.position.copy(n.gripPos);}
-        sfx.pick();buzzHand(h===mainHand()?'main':'off',.4,30);S.fn.onToolGrab?.(n,h);}
+        sfx.pick();hapPulse(h,.4,30);S.fn.onToolGrab?.(n,h);}
       else if(n)grabPiece(h,n);
     }
   }else if(!sq&&h.prevSq){const it=h.held;dropHeld(h);S.fn.onRelease?.(it,h);}
@@ -206,7 +204,7 @@ export function updateHand(h,dt,gp){
       const cp=it.com.clone().applyQuaternion(quat).add(pos);const b=it.body;const k=1/Math.max(dt,1e-3);
       b.velocity.set((cp.x-b.position.x)*k,(cp.y-b.position.y)*k,(cp.z-b.position.z)*k);b.position.set(cp.x,cp.y,cp.z);b.quaternion.set(quat.x,quat.y,quat.z,quat.w);
     }else if(h.kin){const k=1/Math.max(dt,1e-3);h.kin.velocity.set((hp.x-h.kin.position.x)*k,(hp.y-h.kin.position.y)*k,(hp.z-h.kin.position.z)*k);h.kin.position.set(hp.x,hp.y,hp.z);}
-    h.wt=(h.wt||0)-dt;if(h.wt<=0){h.wt=.2;buzzHand(h===mainHand()?'main':'off',clamp(.06+it.body.mass/20,.06,.7),40);}
+    h.wt=(h.wt||0)-dt;if(h.wt<=0){h.wt=.2;hapPulse(h,clamp(.06+it.body.mass/20,.06,.7),40);}
   }
   h.prevSq=sq;
 }

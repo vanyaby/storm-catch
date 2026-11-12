@@ -4,8 +4,9 @@ import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, damp, fmtKg, save, per
   sfx, audioInit, audioUpdate, AU, splash, label, updateParts, updateFloaters, updateBirds, updateEnv, updateAnims, clearAnims, fly, iceContent, bucketContent } from './core.js';
 import { CANNON, world } from './physics.js';
 import { M, newFish, buildFish, scrape, descale } from './voxel.js';
-import { items, pieceItems, addPiece, removeItem, registerTool, toHolster, HANDS, mainHand, offHand, buzzHand, updateHand, syncItems, updateLinks,
+import { items, pieceItems, addPiece, removeItem, registerTool, toHolster, HANDS, mainHand, offHand, updateHand, syncItems, updateLinks,
   collect, processSplits, knifeSweep, markCut, releaseOrgan, toIce, toBucket, onTable, boatPos, mouse, mouseGrab, mouseRelease, updateMouseGrab, links, edgeMats, handMatrixBoat } from './interact.js';
+import { hapPulse, hapCont, hapBoth, hapFlush, hapLog } from './haptics.js';
 import { F, rod, rodItem, net, netItem, setCrankSide, setLureModel, tieLure, rodToDesk, rodOffDesk, rodInHand, deskHand, updateDeskRod, deskCast,
   fishingVR, updateFishing, updateRodLine, tryHook, liftOrNet, resetFishing, crank, forceHook } from './fishing.js';
 
@@ -62,7 +63,7 @@ S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
 /* ---------- settings ---------- */
 function segInit(attr,key,parse,cb){document.querySelectorAll(`[${attr}]`).forEach(b=>{const v=parse(b.getAttribute(attr));b.setAttribute('aria-pressed',String(v===save[key]));
   b.addEventListener('click',()=>{save[key]=v;persist();document.querySelectorAll(`[${attr}]`).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));cb&&cb();});});}
-segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);
+segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);segInit('data-haptic','hapticGain',Number);
 document.getElementById('bTut')?.addEventListener('click',()=>{save.tutorial=0;persist();msg('Обучение начнётся заново','',1.4);});
 ui.bStart.addEventListener('click',()=>{audioInit();startTrip();});
 ui.bView.addEventListener('click',()=>toggleView());ui.bIce.addEventListener('click',()=>clearBoard());ui.bHome.addEventListener('click',()=>goHome());ui.bMute.addEventListener('click',()=>toggleMute());
@@ -156,7 +157,7 @@ function vrKnife(dt){
   // sharpening: the blade drawn over the stone
   const midW=knife.localToWorld(V(0,-.02,-.12));const sl=boat.worldToLocal(midW.clone());
   if(Math.abs(sl.x-STONE.x)<.05&&Math.abs(sl.z-STONE.z)<.11&&Math.abs(sl.y-STONE.y)<.035&&handSp>.15){
-    const was=S.sharp;S.sharp=Math.min(1,S.sharp+dt*.35);h.st=(h.st||0)-dt;if(h.st<=0){h.st=.12;sfx.sharpen();buzzHand(who,.3,40);splash(midW,2,.6,.08);}
+    const was=S.sharp;S.sharp=Math.min(1,S.sharp+dt*.35);h.st=(h.st||0)-dt;if(h.st<=0){h.st=.12;sfx.sharpen();hapPulse(h,.3,40);splash(midW,2,.6,.08);}
     if(was<1&&S.sharp>=1)msg('Нож наточен','',1);}
   const d=_kp.clone().sub(knife.position);const lag=d.length();
   let vmax=1e9;
@@ -170,7 +171,7 @@ function vrKnife(dt){
   if(lag>.3){knife.position.copy(_kp);knife.updateMatrixWorld(true);prevEdge=null;return;}     // pulled free, no cut
   const stepMax=vmax*dt;if(lag>stepMax)knife.position.addScaledVector(d,stepMax/lag);else knife.position.copy(_kp);
   knife.updateMatrixWorld(true);
-  if(r0.n&&lag>.004){h.kt=(h.kt||0)-dt;if(h.kt<=0){h.kt=.045;buzzHand(who,clamp(.18+lag*5+(r0.bone?.35:0)+(r0.hard?.1:0),0,1),45);}}
+  if(r0.n&&lag>.004){h.kt=(h.kt||0)-dt;if(h.kt<=0){h.kt=.045;hapPulse(h,clamp(.18+lag*5+(r0.bone?.35:0)+(r0.hard?.1:0),0,1),45);}}
   const now=KN_EDGE.map(p=>knife.localToWorld(p.clone()));
   if(prevEdge){
     const sp=now[now.length-1].distanceTo(prevEdge[prevEdge.length-1])/Math.max(dt,1e-3);
@@ -179,7 +180,7 @@ function vrKnife(dt){
       const r=knifeSweep(prevEdge,now,{flat,chop});
       if(r.removed)S.cutOnLine=!flat;
       if(r.bone>2&&!chop&&handSp>.25){sfx.bone();}
-      if(chop&&r.removed>20){sfx.crunch();buzzHand(who,1,70);}
+      if(chop&&r.removed>20){sfx.crunch();hapPulse(h,1,70);}
       if(r.removed)S.sharp=Math.max(.2,S.sharp-r.removed*2.5e-6-(chop?.004:0));
       if(S.sharp<.45&&!S.dullWarned){S.dullWarned=true;msg('Нож затупился','Проведите лезвием по точилу на столе',2);}
       if(S.sharp>.8)S.dullWarned=false;
@@ -194,7 +195,7 @@ function vrScaler(dt){
   const pts=SC_PTS.map(p=>scaler.localToWorld(p.clone()));
   if(scPrev&&pts[1].distanceTo(scPrev)>.004){
     for(const it of pieceItems()){if(it.vobj.kind!=='fish')continue;const box=new THREE.Box3().setFromObject(it.obj).expandByScalar(.03);if(!box.containsPoint(pts[1]))continue;
-      const n=descale(it.vobj,pts,.017);if(n){it.vobj.flushMeshes();splash(pts[1],Math.min(4,1+(n>>4)),.9,.12);sfx.click(.07);buzzHand(h===mainHand()?'main':'off',.3,18);}}
+      const n=descale(it.vobj,pts,.017);if(n){it.vobj.flushMeshes();splash(pts[1],Math.min(4,1+(n>>4)),.9,.12);sfx.click(.07);hapPulse(h,.3,18);}}
   }
   scPrev=pts[1].clone();
 }
@@ -446,8 +447,8 @@ function drawWrist(dt){
 function vrHint(){
   if(knifeItem.heldBy)return `Острота ножа ${Math.round(S.sharp*100)}%. Вдоль рыбы режет легче, поперёк туже. В кость упирается: рубите резким ударом. Точило — на столе`;
   if(scalerItem.heldBy)return 'Водите чешуечисткой по коже: чешуя слетает. Рыба без чешуи стоит дороже';
-  switch(F.state){case 'ready':return rodInHand()?(F.hasLure?'Зажмите курок, махните и отпустите':'Возьмите приманку из ящика и поднесите к кончику удилища'):'Удочка в держателе у борта, подсак слева от неё, нож у стола';
-    case 'water':return F.bite?'Клюёт! Ждите рывка и подсекайте вверх':'Крутите катушку свободной рукой. Без проводки приманка тонет';
+  switch(F.state){case 'ready':return rodInHand()?(F.hasLure?'Зажмите курок, махните и отпустите. Приманку можно взять рукой и отстегнуть курком':'Карабин пуст: возьмите приманку из ящика и поднесите к карабину'):'Удочка в держателе у борта, подсак слева от неё, нож у стола';
+    case 'water':return F.bite?'Клюёт! Ждите рывка и подсекайте вверх':LU[F.lureId].hint;
     case 'hooked':return 'Крутите катушку. Правый стик вверх-вниз: фрикцион';case 'landing':return 'Подсак у борта или рывок удилищем для мелкой рыбы';default:return '';}
 }
 
@@ -497,11 +498,12 @@ function frame(){
   world.step(1/60,dt,4);syncItems();updateLinks();collect(dt);processSplits(dt);
   updateCamera(dt);updateRodLine(dt);updateAnims(dt);updateParts(dt);updateFloaters(dt);updateBirds(dt);
   audioUpdate(dt,(F.state==='hooked')?F.tension/lineStrength():0);updateHUD(dt);drawWrist(dt);
+  hapFlush();
   renderer.render(scene,camera);
 }
 rodToDesk();
 renderer.setAnimationLoop(frame);
-window.__game={scalerItem,scaler,vrScaler,deckOK,walk,descale,forceHook,liftOrNet,THREE,CANNON,S,F,camera,scene,boat,fishRoot,rig,HANDS,updateHand,vrKnife,fishingVR,knife,rod,net,board,items,pieceItems,world,save,mouse,links,knifeItem,rodItem,netItem,
+window.__game={hapLog,scalerItem,scaler,vrScaler,deckOK,walk,descale,forceHook,liftOrNet,THREE,CANNON,S,F,camera,scene,boat,fishRoot,rig,HANDS,updateHand,vrKnife,fishingVR,knife,rod,net,board,items,pieceItems,world,save,mouse,links,knifeItem,rodItem,netItem,
   startTrip,endTrip,toIce,toBucket,knifeSweep,evaluate,autoHeight,
   step:n=>{stepDt=1/30;for(let i=0;i<n;i++)frame();stepDt=0;},
   spawnDeck:(id,L)=>{const sp=SP[id];const len=L||lerp(sp.len[0],sp.len[1],.5);const f=newFish(sp,len,Math.round(sp.k*len**3*100)/100);const ob=buildFish(f);boat.add(ob.g);ob.g.position.copy(DECK_SPOT).add(V(0,.15,0));ob.g.quaternion.setFromAxisAngle(UP,Math.PI/2);return addPiece(ob);}};
