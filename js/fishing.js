@@ -399,6 +399,11 @@ function updateRope(dt){
       if(i===0)b.addScaledVector(_v1,-diff);else if(i+1===ROPE_N-1&&!hang)a.addScaledVector(_v1,diff);else{a.addScaledVector(_v1,diff*.5);b.addScaledVector(_v1,-diff*.5);}}
     rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);
   }
+  if(hang){ // a hanging line cannot whip faster than a few m/s: no rocketing when the rod moves or the line is wound in
+    const vmax=6*dt;for(let i=1;i<ROPE_N;i++){const p=rope.p[i],o=rope.o[i];_v1.subVectors(p,o);const l=_v1.length();if(l>vmax)p.copy(o).addScaledVector(_v1,vmax/l);}
+    if(rope.p[ROPE_N-1].distanceTo(A)>rest*1.02+.02){ // stretched past the line length (the rod went up fast): pull the whole line in gently
+      for(let i=1;i<ROPE_N;i++){rope.p[i].lerp(A,.12);}}
+  }
   if(hang||F.state==='ready'){F.lure.copy(rope.p[ROPE_N-1]);}
   const pa=lineGeo.attributes.position;for(let i=0;i<ROPE_N;i++)pa.setXYZ(i,rope.p[i].x,rope.p[i].y,rope.p[i].z);pa.needsUpdate=true;
 }
