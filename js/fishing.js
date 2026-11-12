@@ -388,21 +388,18 @@ function updateRope(dt){
   let rest=hang?Math.max(F.line,.3):(F.state==='hooked'||F.state==='landing')?Math.max(F.line,0):Math.max(F.line,dist);
   if(!hang)rest=Math.max(rest,dist*.999);
   if(!rope.ok){for(let i=0;i<ROPE_N;i++){rope.p[i].lerpVectors(A,B,i/(ROPE_N-1));rope.o[i].copy(rope.p[i]);}rope.ok=true;}
-  if(hang){const dd=rope.p[ROPE_N-1].distanceTo(A);rest=Math.max(rest,dd-.06);}   // the line can take in only a few cm per frame: the lure is pulled in smoothly
   const seg=rest/(ROPE_N-1);const g=-9.8*dt*dt;
   const iEnd=hang?ROPE_N:ROPE_N-1;const LUm=LU[F.lureId];
   for(let i=1;i<iEnd;i++){const p=rope.p[i],o=rope.o[i];const sw=waveH(p.x,p.z);const inW=p.y<sw;
-    const vx=(p.x-o.x)*(inW?.55:.985),vy=(p.y-o.y)*(inW?.55:.985),vz=(p.z-o.z)*(inW?.55:.985);o.copy(p);p.x+=vx;p.y+=vy+(inW?g*.15:g);p.z+=vz;
+    let vx=(p.x-o.x)*(inW?.55:.985),vy=(p.y-o.y)*(inW?.55:.985),vz=(p.z-o.z)*(inW?.55:.985);
+    if(hang){const vl=Math.hypot(vx,vy,vz),vm=9*dt;if(vl>vm){vx*=vm/vl;vy*=vm/vl;vz*=vm/vl;}}   // a short hanging line never whips out
+    o.copy(p);p.x+=vx;p.y+=vy+(inW?g*.15:g);p.z+=vz;
     if(F.state==='flying'&&!inW){p.addScaledVector(wind,S.storm*.3*dt*dt*40);} }
   rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);
   for(let it=0;it<(hang?30:12);it++){
     for(let i=0;i<ROPE_N-1;i++){const a=rope.p[i],b=rope.p[i+1];_v1.subVectors(b,a);const l=_v1.length()||1e-6;const diff=(l-seg)/l;
       if(i===0)b.addScaledVector(_v1,-diff);else if(i+1===ROPE_N-1&&!hang)a.addScaledVector(_v1,diff);else{a.addScaledVector(_v1,diff*.5);b.addScaledVector(_v1,-diff*.5);}}
     rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);
-  }
-  if(hang){ // a hanging line cannot whip faster than a few m/s: no rocketing when the rod moves or the line is wound in
-    const vmax=6*dt;for(let i=1;i<ROPE_N;i++){const p=rope.p[i],o=rope.o[i];_v1.subVectors(p,o);const l=_v1.length();if(l>vmax)p.copy(o).addScaledVector(_v1,vmax/l);}
-
   }
   if(hang||F.state==='ready'){F.lure.copy(rope.p[ROPE_N-1]);}
   const pa=lineGeo.attributes.position;for(let i=0;i<ROPE_N;i++)pa.setXYZ(i,rope.p[i].x,rope.p[i].y,rope.p[i].z);pa.needsUpdate=true;

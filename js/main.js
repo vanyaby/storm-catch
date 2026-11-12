@@ -178,7 +178,7 @@ function evalPose(near,pos,RE,RB){
 function vrKnife(dt){
   const h=knifeItem.heldBy;
   if(!h){KN.init=false;KN.prevEdge=null;return;}
-  handMatrixBoat(h,_km).decompose(_kp,_kq,_ks);
+  handMatrixBoat(h,_km);if(knifeItem.offset)_km.multiply(knifeItem.offset);_km.decompose(_kp,_kq,_ks);
   if(!KN.init){KN.pos.copy(_kp);KN.prevHand.copy(_kp);KN.vel.set(0,0,0);KN.init=true;KN.prevEdge=null;KN.state='free';}
   // hand velocity (smoothed) and the push intent: where the hand is going plus where it is pulling the blade
   const hv=_kp.clone().sub(KN.prevHand).divideScalar(Math.max(dt,1e-3));KN.prevHand.copy(_kp);KN.vel.lerp(hv,.5);
@@ -206,10 +206,12 @@ function vrKnife(dt){
       for(let i=1;i<=steps&&clear;i++){pp.lerpVectors(KN.pos,_kp,i/steps);const q=evalPose(near,pp,RE,RB);if(q.e>0||q.b>0)clear=false;}
       if(clear){KN.pos.copy(_kp);cur=evalPose(near,KN.pos,RE,RB);}}
     let budget=KN.pos.distanceTo(_kp);let guard=0;const dir=_kp.clone().sub(KN.pos).normalize();
+    const dirB=dir.clone().applyQuaternion(_inv);const sideways=Math.abs(dirB.x)>.6;   // pushing with the flat of the blade
     // inside material the blade advances only as fast as the force allows; outside it is free
-    while(budget>1e-4&&guard++<14){
+    while(budget>1e-4&&guard++<24){
       const sub=Math.min(budget,.006);const cand=KN.pos.clone().addScaledVector(dir,sub);const ev=evalPose(near,cand,RE,RB);
-      if(ev.b>cur.b){state='body';break;}                                    // the flat or spine meets the fish: it stops (and pushes the fish)
+      // the flat pushes the fish; the spine stops at the surface. Inside its own cut the blade slides freely.
+      if(ev.b>cur.b&&(sideways||(cur.e===0&&cur.b===0&&!cutting))){state='body';break;}
       let limit=6*dt;
       if(ev.e>cur.e){
         const th=ev.th*sharpScale;
@@ -237,7 +239,7 @@ function vrKnife(dt){
   // the board: the blade cannot go through the table top
   {let lowest=1e9;for(const p of RE){const y=p.y+KN.pos.y;if(y<lowest)lowest=y;}
    const lx=KN.pos.x-TABLE.x,lz=KN.pos.z-TABLE.z;
-   if(Math.abs(lx)<.3&&Math.abs(lz)<.66&&lowest<TABLE.top+.003){const hit=KN.vel.y<-.4&&!KN.tableHit;KN.pos.y+=TABLE.top+.003-lowest;if(hit){hapPulse(h,.5,15);sfx.tap(.4);}KN.tableHit=KN.vel.y<-.4;}else KN.tableHit=false;
+   if(Math.abs(lx)<.3&&Math.abs(lz)<.66&&lowest<TABLE.top-.004){const hit=KN.vel.y<-.4&&!KN.tableHit;KN.pos.y+=TABLE.top-.004-lowest;if(hit){hapPulse(h,.5,15);sfx.tap(.4);}KN.tableHit=KN.vel.y<-.4;}else KN.tableHit=false;
    if(lowest<.012&&!(Math.abs(lx)<.3&&Math.abs(lz)<.66)){KN.pos.y+=.012-lowest;}}
   knife.position.copy(KN.pos);knife.updateMatrixWorld(true);
   // sharpening: the blade drawn over the stone

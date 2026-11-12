@@ -160,14 +160,19 @@ function dropHeld(h,silent){
   if(!silent){it.body.velocity.set(v.x,v.y,v.z);it.body.angularVelocity.set(w.x,w.y,w.z);}
   it.body.wakeUp();
 }
+function localBox(obj){
+  obj.updateMatrixWorld(true);const inv=obj.matrixWorld.clone().invert(),b=new THREE.Box3(),m=new THREE.Matrix4();
+  obj.traverse(o=>{if(!o.isMesh||!o.geometry||!o.visible)return;o.geometry.computeBoundingBox();b.union(o.geometry.boundingBox.clone().applyMatrix4(m.multiplyMatrices(inv,o.matrixWorld)));});
+  return b;
+}
 function nearestFor(h){
   const hp=h.grip.getWorldPosition(V());let best=null,bd=1e9;
   for(const it of items){
     if(it.heldBy&&it.type==='tool')continue;
-    if(it.type==='tool'){let d;
-      if(it.seg){const l=it.obj.worldToLocal(hp.clone());const t=clamp(l.y,0,it.seg);const dd=Math.hypot(l.x,l.y-t,l.z);if(dd>.11)continue;it._t=t;d=dd*.5;}   // long tools: anywhere along the handle
-      else d=hp.distanceTo(it.obj.getWorldPosition(_v2));
-      if(d<.16&&d<bd){bd=d;best=it;}continue;}
+    if(it.type==='tool'){   // any point of the tool: the hand is tested against its own shape, not just the handle
+      if(!it.lbox)it.lbox=localBox(it.obj);
+      const d=it.lbox.distanceToPoint(it.obj.worldToLocal(hp.clone()));
+      if(d<.06&&d*.8<bd){bd=d*.8;best=it;}continue;}
     const box=new THREE.Box3().setFromObject(it.obj);if(box.isEmpty())continue;box.expandByScalar(.035);
     if(box.containsPoint(hp)){const d=box.getCenter(_v2).distanceTo(hp)*.5+(it.vobj.kind==='organ'?-.05:0);if(d<bd){bd=d;best=it;}}
   }
@@ -188,9 +193,9 @@ export function updateHand(h,dt,gp){
     if(sq&&!h.prevSq&&!S.fn.handGrabSpecial?.(h)){
       if(n&&n.type==='organIn'){const it=releaseOrgan(n.fish,n.org,false);if(it){sfx.squelch();grabPiece(h,it);}}
       else if(n&&n.type==='tool'){h.held=n;n.heldBy=h;setHi(n,false);if(n.body.world)world.removeBody(n.body);n.inHolster=false;
-        if(n.follow)boat.attach(n.obj);
-        else{h.grip.add(n.obj);n.obj.quaternion.copy(n.gripQuat);
-          if(n.seg){const t=clamp(n._t??.16,.03,n.seg);n.obj.position.copy(V(0,1,0).applyQuaternion(n.gripQuat).multiplyScalar(-t)).add(V(0,-.02,0));}else n.obj.position.copy(n.gripPos);}
+        // taken exactly as it lies relative to the hand: no snapping to a fixed grip
+        if(n.follow){boat.attach(n.obj);n.obj.updateMatrix();n.offset=new THREE.Matrix4().multiplyMatrices(handMatrixBoat(h,new THREE.Matrix4()).invert(),n.obj.matrix);}
+        else h.grip.attach(n.obj);
         sfx.pick();hapPulse(h,.4,30);S.fn.onToolGrab?.(n,h);}
       else if(n)grabPiece(h,n);
     }
