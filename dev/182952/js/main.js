@@ -202,7 +202,9 @@ function vrKnife(dt){
   else{
     let cur=evalPose(near,KN.pos,RE,RB);
     // a big jump of the hand (taking the knife from its holder): if the hand pose is free, just follow
-    if(lag>.45){const hp=evalPose(near,_kp,RE,RB);if(hp.e===0&&hp.b===0){KN.pos.copy(_kp);cur=hp;}}
+    if(lag>.45&&cur.e===0&&cur.b===0){let clear=true;const steps=Math.ceil(lag/.015),pp=V();
+      for(let i=1;i<=steps&&clear;i++){pp.lerpVectors(KN.pos,_kp,i/steps);const q=evalPose(near,pp,RE,RB);if(q.e>0||q.b>0)clear=false;}
+      if(clear){KN.pos.copy(_kp);cur=evalPose(near,KN.pos,RE,RB);}}
     let budget=KN.pos.distanceTo(_kp);let guard=0;const dir=_kp.clone().sub(KN.pos).normalize();
     // inside material the blade advances only as fast as the force allows; outside it is free
     while(budget>1e-4&&guard++<14){
