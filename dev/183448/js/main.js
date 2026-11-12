@@ -584,7 +584,7 @@ function frame(){
     vrButtons(dt);
     for(const k of ['left','right']){const h=HANDS[k];if(h)animateHand(h,dt);}
   }else{
-    F.reel=S.gameState==='sea'&&S.view==='sea'&&ptr.down&&F.state!=='wind'&&F.state!=='ready'?1:0;
+    F.reel=S.gameState==='sea'&&S.view==='sea'&&ptr.down&&F.state!=='wind'&&(F.state!=='ready'||(F.hasLure&&F.line>.45))?1:0;
     if(S.view==='sea'&&rodItem.desk)updateDeskRod(dt,ptr.ndc);
   }
   if(S.gameState==='sea'){updateFishing(dt);updateDeck(dt);updateDeskKnife();stormEvents(dt);}
