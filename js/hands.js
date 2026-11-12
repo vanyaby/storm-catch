@@ -1,4 +1,4 @@
-/* Hands with fingers: a fisherman's glove. Fingers run along -Z, the back of the hand is +Y, the thumb is on +X (mirrored for the left hand).
+/* Hands with fingers: a fisherman's glove. Fingers run along -Z, the back of the hand is +Y, the thumb is on +X: this is a LEFT hand, mirrored (scale.x=-1) for the right one.
    Poses come from the controller buttons, and from what is held (each object has its own grip). */
 import { THREE, V, clamp, damp, save, Mat } from './core.js';
 

@@ -31,7 +31,7 @@ function buildRod(){
   const crank=new THREE.Group();crank.position.set(-.038,-.015,-.005);reel.add(crank);
   const carm=new THREE.Mesh(new THREE.BoxGeometry(.006,.006,.07),metal);carm.position.z=-.035;crank.add(carm);
   const knob=new THREE.Mesh(new THREE.CylinderGeometry(.011,.011,.03,6),knobMat);knob.rotation.z=Math.PI/2;knob.position.set(-.016,0,-.07);crank.add(knob);
-  const khm=buildHand();setCurls(khm,POSES.crank);const knobHand=khm.root;knobHand.visible=false;knobHand.position.set(-.03,.05,-.07);knobHand.rotation.x=-Math.PI/2;knobHand.scale.setScalar(.95);crank.add(knobHand);
+  const khm=buildHand();setCurls(khm,POSES.crank);const knobHand=khm.root;knobHand.visible=false;knobHand.rotation.x=-Math.PI/2;knobHand.scale.setScalar(.95);reel.add(knobHand);
   const segs=[];let parent=root;const N=6,SL=.36;
   for(let i=0;i<N;i++){const g=new THREE.Group();g.position.y=i===0?.46:SL;parent.add(g);
     const r0=.0105*(1-i/N)+.0024,r1=.0105*(1-(i+1)/N)+.0024;const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r0,SL,6),blank);m.position.y=SL/2;g.add(m);
@@ -40,7 +40,7 @@ function buildRod(){
   return {root,segs,tip,crank,knob,knobHand,ring,reel,bail,spool,dragKnob};
 }
 export const rod=buildRod();
-export function setCrankSide(){const s=save.rodHand==='right'?-1:1;rod.crank.position.x=.038*s;rod.knob.position.x=.016*s;rod.knobHand.position.x=.03*s;rod.knobHand.scale.x=.95*s;}
+export function setCrankSide(){const s=save.rodHand==='right'?-1:1;rod.crank.position.x=.038*s;rod.knob.position.x=.016*s;rod.knobSide=s;rod.knobHand.scale.x=-.95*s;}
 setCrankSide();
 export const rodItem=registerTool('rod',rod.root,b=>b.addShape(new CANNON.Box(new CANNON.Vec3(.025,1.25,.025)),new CANNON.Vec3(0,1.25,0)),.6,HOLSTER.rod,
   V(0,-.02,.16),new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2+.55,0,0)));
@@ -523,6 +523,9 @@ const ringCol=new THREE.Color();
 export function updateRodLine(dt){
   updateBend(dt);updateRope(dt);
   if(!crank.held)crank.angle-=F.reel*dt*14;rod.crank.rotation.x=crank.angle;
+  if(rod.knobHand.visible){ // fingers pinch the knob; the hand keeps its own orientation while the arm turns
+    rod.crank.updateMatrix();_v1.copy(rod.knob.position).applyMatrix4(rod.crank.matrix);
+    rod.knobHand.position.set(_v1.x+.016*(rod.knobSide||-1),_v1.y+.05,_v1.z);}
   if(F.state==='hooked'&&F.slipAcc>0)rod.spool.rotation.y+=dt*12*clamp(F.tension/F.drag,0,1);
   rod.bail.rotation.y=damp(rod.bail.rotation.y,F.bail==='open'?2.6:0,18,dt);
   const end=rope.p[ROPE_N-1];

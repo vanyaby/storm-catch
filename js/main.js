@@ -94,7 +94,7 @@ for(let i=0;i<2;i++){
   const ctl=renderer.xr.getController(i),grip=renderer.xr.getControllerGrip(i);rig.add(ctl,grip);
   const hand=buildHand();hand.root.position.set(0,-.005,.045);grip.add(hand.root);const mitt=hand.root;
   const h={ctl,grip,mitt,hand,src:null,held:null,prev:{a:false,b:false,x:false}};
-  ctl.addEventListener('connected',e=>{h.src=e.data;hand.root.scale.x=e.data.handedness==='left'?-1:1;HANDS[e.data.handedness==='left'?'left':'right']=h;h.name=e.data.handedness;});
+  ctl.addEventListener('connected',e=>{h.src=e.data;hand.root.scale.x=e.data.handedness==='left'?1:-1;HANDS[e.data.handedness==='left'?'left':'right']=h;h.name=e.data.handedness;});
   ctl.addEventListener('disconnected',()=>{for(const k in HANDS)if(HANDS[k]===h)HANDS[k]=null;});
 }
 const wristCanvas=document.createElement('canvas');wristCanvas.width=512;wristCanvas.height=320;
