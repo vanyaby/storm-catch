@@ -179,13 +179,13 @@ function fishHaptics(dt,f){
   f.wasAir=false;
   if(F.tension<.05){if(!f.wasSlack){f.wasSlack=true;hapPulse(rh,.35,25);}return;}   // slack: one soft tick, then silence — reel in
   f.wasSlack=false;
-  const t1=Math.min(1,tn);hapCont(rh,.2+.55*t1);if(ch)hapCont(ch,.12+.5*t1);       // the strain itself, in both hands
-  if(tn>.85){hapCont(rh,.9);f.hapAcc+=dt*20;while(f.hapAcc>=1){f.hapAcc-=1;hapPulse(rh,1,12);}return;}   // about to break: a hard tremor
+  const t1=Math.min(1,tn);hapCont(rh,.1+.25*t1);if(ch)hapCont(ch,.1+.35*t1);       // the strain itself, in both hands (a quiet bed under the fish's own signature)
+  if(tn>.95){f.hapAcc+=dt*22;while(f.hapAcc>=1){f.hapAcc-=1;f.hapAlt=!f.hapAlt;hapPulse(rh,f.hapAlt?1:.2,10);}return;}   // about to break: a sharp rattle
   switch(f.mode){
-    case 'shake':f.hapAcc+=dt*8;while(f.hapAcc>=1){f.hapAcc-=1;f.hapAlt=!f.hapAlt;hapPulse(rh,f.hapAlt?.85:.5,40);}break;          // head shakes: a beat
+    case 'shake':f.hapAcc+=dt*7;while(f.hapAcc>=1){f.hapAcc-=1;f.hapAlt=!f.hapAlt;hapPulse(rh,f.hapAlt?.9:.55,30);}break;          // head shakes: a beat
     case 'zig':f.hapAcc+=dt*(4+3*Math.random());while(f.hapAcc>=1){f.hapAcc-=1;hapPulse(rh,.45+.35*Math.random(),30);}break;   // darting: uneven jabs
-    case 'dive':f.hapAcc+=dt*2.2;while(f.hapAcc>=1){f.hapAcc-=1;hapPulse(rh,.95,110);}hapCont(rh,.45+.4*t1);break;               // diving: heavy long pulls
-    case 'run':hapCont(rh,.4+.5*t1);break;                                                                                          // running: a strong steady drag
+    case 'dive':f.hapAcc+=dt*1.6;while(f.hapAcc>=1){f.hapAcc-=1;hapPulse(rh,1,220);}break;               // diving: heavy long pulls
+    case 'run':hapCont(rh,.35+.35*t1);break;                                                                                          // running: a strong steady drag
     case 'charge':hapCont(rh,.12);break;                                                                                             // swimming at you: the line goes light
     case 'rest':hapCont(rh,.15+.2*t1);break;
     default:if(f.sp.str>=.6){f.hapAcc+=dt*1.5;while(f.hapAcc>=1){f.hapAcc-=1;hapPulse(rh,.8,90);}}
