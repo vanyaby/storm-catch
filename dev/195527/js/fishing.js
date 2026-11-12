@@ -359,9 +359,12 @@ function updateHeldLures(){
 
 /* ---------- cast assist ---------- */
 function bestSwing(){
-  const B=F.castBuf;if(!B||!B.length)return null;let bi=0;for(let i=0;i<B.length;i++)if(B[i].v.length()>B[bi].v.length())bi=i;
-  if(S.T-B[bi].t>.15){let bj=-1;for(let i=0;i<B.length;i++)if(S.T-B[i].t<=.15&&(bj<0||B[i].v.length()>B[bj].v.length()))bj=i;if(bj>=0)bi=bj;}
-  const v=V();let n=0;for(let i=Math.max(0,bi-2);i<=Math.min(B.length-1,bi+2);i++){v.add(B[i].v);n++;}v.divideScalar(n);
+  const B=F.castBuf;if(!B||!B.length)return null;
+  // only the forward part of the swing counts: samples moving the way the rod moves at release (or now)
+  const ref=(F.releasing&&F.releasing.dir.lengthSq()>.5?F.releasing.dir:tipVelS).clone().normalize();
+  const ok=i=>B[i].v.dot(ref)>0&&S.T-B[i].t<=.25;
+  let bi=-1;for(let i=0;i<B.length;i++)if(ok(i)&&(bi<0||B[i].v.length()>B[bi].v.length()))bi=i;if(bi<0)bi=B.length-1;
+  const v=V();let n=0;for(let i=Math.max(0,bi-2);i<=Math.min(B.length-1,bi+2);i++){if(B[i].v.dot(ref)<=0)continue;v.add(B[i].v);n++;}if(n)v.divideScalar(n);else v.copy(B[bi].v);
   return {v,t:B[bi].t,speed:B[bi].v.length()};
 }
 /* raw: the rod tip's own velocity now. assisted: the fastest moment of the whole swing, its direction kept within a sane corridor */
@@ -462,10 +465,10 @@ export function fishingVR(dt){
         for(let j=i;j<ARC_N;j++)pa.setXYZ(j,p.x,p.y,p.z);pa.needsUpdate=true;arc.visible=true;
         if(land){ringMark.position.set(land.x,waveH(land.x,land.z)+.05,land.z);ringMark.visible=true;}}
       else{arc.visible=false;ringMark.visible=false;}
-      if(!trig&&!F.releasing)F.releasing={t:0,prev:sp};
+      if(!trig&&!F.releasing)F.releasing={t:0,last:sp,dir:tipVelS.clone()};
       if(F.releasing){
         // let go a moment too early: wait (a little) for the rod to reach its fastest point
-        const rel=F.releasing;rel.t+=dt;const rising=sp>rel.prev*1.02;rel.prev=Math.max(rel.prev,sp);
+        const rel=F.releasing;const rising=rel.t===0||sp>rel.last*1.01;rel.last=sp;rel.t+=dt;
         if(!(save.castAssist>0&&rising&&rel.t<.12)){
           const best=bestSwing();
           if(best&&best.v.length()>1.2){const vv=castVector(true);launchLure(null,0,vv);hapPulse(rodHand(),.3,30);
