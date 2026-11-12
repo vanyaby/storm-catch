@@ -225,7 +225,7 @@ function vrKnife(dt){
       const pw=prevE.map(p=>boat.localToWorld(p)),nw=nowE.map(p=>boat.localToWorld(p));
       if(ev.e>0||cur.e>0){
         const r=knifeSweep(pw,nw,{flat:false,chop:KN.boneOK>0||strike>10});
-        removedTotal+=r.removed;rib+=r.mats[M.RIB]||0;for(const k of [M.STOMACH,M.LIVER,M.GUT,M.ROE,M.GALL])organs+=r.mats[k]||0;if(r.bone>0)boneCut=true;
+        removedTotal+=r.removed;rib+=r.mats[M.RIB]||0;for(const k of [M.STOMACH,M.LIVER,M.GUT,M.ROE,M.GALL])organs+=r.mats[k]||0;if((r.mats[M.BONE]||0)>0)boneCut=true;
         for(const k in ev.mm)if(!cutMat||ev.mm[k]>(ev.mm[cutMat]||0))cutMat=+k;
       }
       KN.pos.copy(cand);cur=ev;budget-=sub;
