@@ -196,9 +196,11 @@ function vrKnife(dt){
   if(!near.length){KN.pos.copy(_kp);}
   else{
     let cur=evalPose(near,KN.pos,RE,RB);
-    let budget=lag;let guard=0;const dir=d.clone().normalize();
+    // a big jump of the hand (taking the knife from its holder): if the hand pose is free, just follow
+    if(lag>.45){const hp=evalPose(near,_kp,RE,RB);if(hp.e===0&&hp.b===0){KN.pos.copy(_kp);cur=hp;}}
+    let budget=KN.pos.distanceTo(_kp);let guard=0;const dir=_kp.clone().sub(KN.pos).normalize();
     // inside material the blade advances only as fast as the force allows; outside it is free
-    while(budget>1e-4&&guard++<7){
+    while(budget>1e-4&&guard++<14){
       const sub=Math.min(budget,.006);const cand=KN.pos.clone().addScaledVector(dir,sub);const ev=evalPose(near,cand,RE,RB);
       if(ev.b>cur.b){state='body';break;}                                    // the flat or spine meets the fish: it stops (and pushes the fish)
       let limit=6*dt;
