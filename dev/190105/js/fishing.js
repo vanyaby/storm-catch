@@ -401,6 +401,8 @@ function updateRope(dt){
       if(i===0)b.addScaledVector(_v1,-diff);else if(i+1===ROPE_N-1&&!hang)a.addScaledVector(_v1,diff);else{a.addScaledVector(_v1,diff*.5);b.addScaledVector(_v1,-diff*.5);}}
     rope.p[0].copy(A);if(!hang)rope.p[ROPE_N-1].copy(B);
   }
+  if(hang){ // the line has a fixed length: no point may be farther from the tip than the line before it, however fast the rod moves
+    for(let i=1;i<ROPE_N;i++){const p=rope.p[i];_v1.subVectors(p,A);const l=_v1.length(),mx=seg*i;if(l>mx){p.copy(A).addScaledVector(_v1,mx/l);}}}
   if(hang||F.state==='ready'){F.lure.copy(rope.p[ROPE_N-1]);}
   const pa=lineGeo.attributes.position;for(let i=0;i<ROPE_N;i++)pa.setXYZ(i,rope.p[i].x,rope.p[i].y,rope.p[i].z);pa.needsUpdate=true;
 }
