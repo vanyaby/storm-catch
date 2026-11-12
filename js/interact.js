@@ -278,7 +278,7 @@ export function cutStep(eP,eN,opts={}){
     for(const o of ob.organs){const so=sampler(o);for(const p of eN)if(so(p)){res.mats[o.organ]=(res.mats[o.organ]||0)+1;
       if(!ob.fish.bile&&(o.organ===M.GALL||o.organ===M.STOMACH||o.organ===M.GUT)){ob.fish.bile=true;msg('Задели потроха!','Желчь и содержимое попали на мясо, оно подешевеет',2.2);}break;}}
     let st=strokes.get(it);
-    if(!inN&&!cav&&!st)continue;
+    if(!inN&&!cav&&!st&&!opts.oneShot)continue;
     if(!st){st={quads:[],n:V(),pts:[],idle:0,chop:false};strokes.set(it,st);}
     st.idle=0;if(opts.chop)st.chop=true;if(cav)st.cav=true;
     const L=toLocal(it,[eP[0],eP[eP.length-1],eN[0],eN[eN.length-1]]);
@@ -328,6 +328,6 @@ function tryFinish(it,st,final,opts){
   return false;
 }
 /* the desktop knife: one straight sweep, finished at once */
-export function knifeSweep(edgePrev,edgeNow,opts={}){const r=cutStep(edgePrev,edgeNow,opts);cutFrame(true);return r;}
+export function knifeSweep(edgePrev,edgeNow,opts={}){const r=cutStep(edgePrev,edgeNow,{...opts,oneShot:true});cutFrame(true);return r;}
 export function markCut(it){it.vobj.cut=true;it.vobj.flushMeshes();S.cutSound=1;}
 export function processSplits(){}
