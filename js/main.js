@@ -7,6 +7,7 @@ import { M, newFish, buildFish, scrape, descale, sampler } from './voxel.js';
 import { items, pieceItems, addPiece, removeItem, registerTool, toHolster, HANDS, mainHand, offHand, updateHand, syncItems, updateLinks,
   collect, processSplits, knifeSweep, markCut, releaseOrgan, toIce, toBucket, onTable, boatPos, mouse, mouseGrab, mouseRelease, updateMouseGrab, links, edgeMats, handMatrixBoat } from './interact.js';
 import { hapPulse, hapCont, hapBoth, hapFlush, hapLog } from './haptics.js';
+import { buildHand, animateHand } from './hands.js';
 import { F, rod, rodItem, net, netItem, setCrankSide, setLureModel, tieLure, rodToDesk, rodOffDesk, rodInHand, deskHand, updateDeskRod, deskCast,
   fishingVR, updateFishing, updateRodLine, tryHook, liftOrNet, resetFishing, crank, forceHook } from './fishing.js';
 
@@ -87,9 +88,9 @@ ui.bVR.addEventListener('click',async()=>{
 /* ---------- VR controllers ---------- */
 for(let i=0;i<2;i++){
   const ctl=renderer.xr.getController(i),grip=renderer.xr.getControllerGrip(i);rig.add(ctl,grip);
-  const mitt=new THREE.Mesh(new THREE.BoxGeometry(.07,.045,.11),Mat(0xd4a24a,{roughness:.8}));mitt.position.z=.03;grip.add(mitt);
-  const h={ctl,grip,mitt,src:null,held:null,prev:{a:false,b:false,x:false}};
-  ctl.addEventListener('connected',e=>{h.src=e.data;HANDS[e.data.handedness==='left'?'left':'right']=h;h.name=e.data.handedness;});
+  const hand=buildHand();hand.root.position.set(0,-.005,.045);grip.add(hand.root);const mitt=hand.root;
+  const h={ctl,grip,mitt,hand,src:null,held:null,prev:{a:false,b:false,x:false}};
+  ctl.addEventListener('connected',e=>{h.src=e.data;hand.root.scale.x=e.data.handedness==='left'?-1:1;HANDS[e.data.handedness==='left'?'left':'right']=h;h.name=e.data.handedness;});
   ctl.addEventListener('disconnected',()=>{for(const k in HANDS)if(HANDS[k]===h)HANDS[k]=null;});
 }
 const wristCanvas=document.createElement('canvas');wristCanvas.width=512;wristCanvas.height=320;
@@ -154,7 +155,7 @@ function vrButtons(dt){
 const KN={pos:V(),init:false,vel:V(),prevHand:V(),state:'free',blockT:0,saw:0,sawSign:0,boneOK:0,prevEdge:null,tick:0};
 const K_SPRING=130;                       // N per metre of lag between hand and blade
 const TH={[M.SKIN]:1.0,[M.SKIN2]:.8,[M.FLESH]:.45,[M.BLOOD]:.45,[M.LINING]:.5,[M.RIB]:2.4,[M.HEAD]:2.8,[M.GILL]:1.4,[M.EYE]:.8,[M.FIN]:.2,
-  [M.BONE]:14,[M.STOMACH]:.25,[M.LIVER]:.3,[M.GUT]:.25,[M.ROE]:.2,[M.GALL]:.2};
+  [M.BONE]:30,[M.STOMACH]:.25,[M.LIVER]:.3,[M.GUT]:.25,[M.ROE]:.2,[M.GALL]:.2};
 const BODY_LOCAL=[];for(const z of [-.03,-.075,-.12,-.165,-.205])BODY_LOCAL.push(V(0,.004,z),V(0,-.008,z));
 const _rq=new THREE.Quaternion(),_inv=new THREE.Quaternion();
 const _km=new THREE.Matrix4(),_kp=V(),_kq=new THREE.Quaternion(),_ks=V();
@@ -575,6 +576,7 @@ function frame(){
     if(HANDS.left&&wrist.parent!==HANDS.left.grip)HANDS.left.grip.add(wrist);
     if(S.gameState==='sea'){vrLocomotion(dt);for(const k of ['left','right']){const h=HANDS[k];if(h)updateHand(h,dt,h.src&&h.src.gamepad);}fishingVR(dt);vrKnife(dt);vrScaler(dt);}
     vrButtons(dt);
+    for(const k of ['left','right']){const h=HANDS[k];if(h)animateHand(h,dt);}
   }else{
     F.reel=S.gameState==='sea'&&S.view==='sea'&&ptr.down&&F.state!=='wind'&&F.state!=='ready'?1:0;
     if(S.view==='sea'&&rodItem.desk)updateDeskRod(dt,ptr.ndc);

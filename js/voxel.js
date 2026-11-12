@@ -50,7 +50,7 @@ export class VObj{
     this.fish=fish;this.kind=kind;this.nx=nx;this.ny=ny;this.nz=nz;this.vs=vs;this.o=o.clone();
     this.m=new Uint8Array(nx*ny*nz);this.cav=null;this.organ=null;this.organs=[];this.anchor=null;
     this.g=new THREE.Group();this.g.userData.vobj=this;
-    this.mat=new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true,roughness:.5,metalness:.08,side:THREE.DoubleSide,
+    this.mat=new THREE.MeshStandardMaterial({vertexColors:true,flatShading:false,roughness:.42,metalness:.1,side:THREE.DoubleSide,
       emissive:new THREE.Color(0),emissiveIntensity:1});
     this.slabs=[];this.dirty=new Set();this.body=null;this.com=V();this.count=0;this.splitPending=false;this.open=false;
   }
@@ -63,43 +63,68 @@ export class VObj{
   flushMeshes(){for(const s of this.dirty)this.meshSlab(s);this.dirty.clear();}
   dispose(){for(const m of this.slabs)if(m){m.geometry.dispose();}this.mat.dispose();}
   /* surface nets over one slab of cells along x */
+  /* smooth surface: the solid mask is blurred into a density field, the surface is the 0.5 level (surface nets with
+     interpolated crossings), normals come from the field gradient. Every quad keeps the material of the voxel it belongs to,
+     so layers (skin, meat, bone, lining) stay sharp while the shape is smooth. */
   meshSlab(si){
     const {nx,ny,nz,m,vs,o}=this;const x0=si*SLAB,x1=Math.min(nx-1,x0+SLAB);
     if(this.slabs[si]){this.g.remove(this.slabs[si]);this.slabs[si].geometry.dispose();this.slabs[si]=null;}
     if(x0>=x1)return;
     const cx0=Math.max(0,x0-1),cx1=Math.min(nx-2,x1);const cw=cx1-cx0+1,cyN=ny-1,czN=nz-1;
-    const vx=new Float32Array(cw*cyN*czN*3);const has=new Uint8Array(cw*cyN*czN);
+    // density field over x in [fx0, fx0+Wf), y in [-1, ny], z in [-1, nz]
+    const fx0=cx0-1,Wf=cx1-cx0+4,Wy=ny+2,Wz=nz+2;const N=Wf*Wy*Wz;
+    let A=new Float32Array(N),B=new Float32Array(N);
+    for(let iz=0;iz<Wz;iz++){const z=iz-1;if(z<0||z>=nz)continue;for(let iy=0;iy<Wy;iy++){const y=iy-1;if(y<0||y>=ny)continue;const base=(iz*Wy+iy)*Wf;
+      for(let ix=0;ix<Wf;ix++){const x=fx0+ix;if(x<0||x>=nx)continue;if(m[x+nx*(y+ny*z)])A[base+ix]=1;}}}
+    const sx=1,sy=Wf,sz=Wf*Wy;
+    const blur=(src,dst,st,len,outer1,outer2,s1,s2)=>{ // 3-tap mean along one axis
+      for(let i2=0;i2<outer2;i2++)for(let i1=0;i1<outer1;i1++){const base=i1*s1+i2*s2;
+        for(let k=0;k<len;k++){const c=base+k*st;const p=k>0?src[c-st]:0,n=k<len-1?src[c+st]:0;dst[c]=(p+src[c]+n)/3;}}};
+    blur(A,B,sx,Wf,Wy,Wz,sy,sz);blur(B,A,sy,Wy,Wf,Wz,sx,sz);blur(A,B,sz,Wz,Wf,Wy,sx,sy);
+    const Fd=B;const fidx=(x,y,z)=>((z+1)*Wy+(y+1))*Wf+(x-fx0);
+    const ISO=.5;
+    const vx=new Float32Array(cw*cyN*czN*3),nm=new Float32Array(cw*cyN*czN*3);const has=new Uint8Array(cw*cyN*czN);
     const ci=(cx,cy,cz)=>(cx-cx0)+cw*(cy+cyN*cz);
-    const solid=(x,y,z)=>m[x+nx*(y+ny*z)]!==0;
+    const f8=new Float32Array(8);
     for(let cz=0;cz<czN;cz++)for(let cy=0;cy<cyN;cy++)for(let cx=cx0;cx<=cx1;cx++){
-      let mask=0,b=0;
-      for(let k=0;k<8;k++){const dx=k&1,dy=(k>>1)&1,dz=(k>>2)&1;if(solid(cx+dx,cy+dy,cz+dz))mask|=1<<k;}
+      let mask=0;
+      for(let k=0;k<8;k++){const v=Fd[fidx(cx+(k&1),cy+((k>>1)&1),cz+((k>>2)&1))];f8[k]=v;if(v>ISO)mask|=1<<k;}
       if(mask===0||mask===255)continue;
-      let sx=0,sy=0,sz=0,n=0;
-      for(const [a,c] of EDGES){if(((mask>>a)&1)!==((mask>>c)&1)){sx+=(CO[a][0]+CO[c][0])*.5;sy+=(CO[a][1]+CO[c][1])*.5;sz+=(CO[a][2]+CO[c][2])*.5;n++;}}
-      const i=ci(cx,cy,cz);has[i]=1;vx[i*3]=o.x+(cx+sx/n+.5)*vs;vx[i*3+1]=o.y+(cy+sy/n+.5)*vs;vx[i*3+2]=o.z+(cz+sz/n+.5)*vs;b++;
+      let ax=0,ay=0,az=0,n=0;
+      for(const e of EDGES){const a=e[0],c=e[1];if(((mask>>a)&1)!==((mask>>c)&1)){const t=(ISO-f8[a])/(f8[c]-f8[a]);ax+=CO[a][0]+(CO[c][0]-CO[a][0])*t;ay+=CO[a][1]+(CO[c][1]-CO[a][1])*t;az+=CO[a][2]+(CO[c][2]-CO[a][2])*t;n++;}}
+      const i=ci(cx,cy,cz);has[i]=1;vx[i*3]=o.x+(cx+ax/n+.5)*vs;vx[i*3+1]=o.y+(cy+ay/n+.5)*vs;vx[i*3+2]=o.z+(cz+az/n+.5)*vs;
+      // outward normal = -gradient of the density
+      let gx=(f8[1]-f8[0]+f8[3]-f8[2]+f8[5]-f8[4]+f8[7]-f8[6]),gy=(f8[2]-f8[0]+f8[3]-f8[1]+f8[6]-f8[4]+f8[7]-f8[5]),gz=(f8[4]-f8[0]+f8[5]-f8[1]+f8[6]-f8[2]+f8[7]-f8[3]);
+      const gl=Math.hypot(gx,gy,gz)||1;nm[i*3]=-gx/gl;nm[i*3+1]=-gy/gl;nm[i*3+2]=-gz/gl;
     }
-    const pos=[],col=[];const cc=new THREE.Color();const vtx=i=>[vx[i*3],vx[i*3+1],vx[i*3+2]];
-    const quad=(c0,c1,c2,c3,flip,mat,vxx,vyy,vzz)=>{
+    const pos=[],nor=[],col=[];const cc=new THREE.Color();
+    const matAtVox=(x,y,z,dx,dy,dz)=>{let q=m[x+nx*(y+ny*z)];if(q)return q;
+      for(const [ex,ey,ez] of NB6){const xx=x+ex,yy=y+ey,zz=z+ez;if(xx<0||yy<0||zz<0||xx>=nx||yy>=ny||zz>=nz)continue;q=m[xx+nx*(yy+ny*zz)];if(q)return q;}return M.FLESH;};
+    const quad=(c0,c1,c2,c3,flip,x,y,z)=>{
       if(c0<0||c1<0||c2<0||c3<0||!has[c0]||!has[c1]||!has[c2]||!has[c3])return;
-      const a=vtx(c0),b=vtx(c1),c=vtx(c2),d=vtx(c3);
-      matColor(this,mat,o.x+(vxx+.5)*vs,o.y+(vyy+.5)*vs,o.z+(vzz+.5)*vs,cc);
-      if(flip)pos.push(...a,...c,...b,...a,...d,...c);else pos.push(...a,...b,...c,...a,...c,...d);
-      for(let k=0;k<6;k++)col.push(cc.r,cc.g,cc.b);
+      const mat=matAtVox(x,y,z);matColor(this,mat,o.x+(x+.5)*vs,o.y+(y+.5)*vs,o.z+(z+.5)*vs,cc);
+      // wind the triangles so that they face the way the normals point (needed for correct two-sided lighting)
+      const ux=vx[c1*3]-vx[c0*3],uy=vx[c1*3+1]-vx[c0*3+1],uz=vx[c1*3+2]-vx[c0*3+2],wx=vx[c2*3]-vx[c0*3],wy=vx[c2*3+1]-vx[c0*3+1],wz=vx[c2*3+2]-vx[c0*3+2];
+      const gnx=uy*wz-uz*wy,gny=uz*wx-ux*wz,gnz=ux*wy-uy*wx;
+      const sx=nm[c0*3]+nm[c1*3]+nm[c2*3]+nm[c3*3],sy=nm[c0*3+1]+nm[c1*3+1]+nm[c2*3+1]+nm[c3*3+1],sz=nm[c0*3+2]+nm[c1*3+2]+nm[c2*3+2]+nm[c3*3+2];
+      const fl=(gnx*sx+gny*sy+gnz*sz)<0;
+      const I=fl?[c0,c2,c1,c0,c3,c2]:[c0,c1,c2,c0,c2,c3];
+      for(const c of I){pos.push(vx[c*3],vx[c*3+1],vx[c*3+2]);nor.push(nm[c*3],nm[c*3+1],nm[c*3+2]);col.push(cc.r,cc.g,cc.b);}
     };
     const C=(cx,cy,cz)=>(cx<cx0||cx>cx1||cy<0||cz<0||cy>=cyN||cz>=czN)?-1:ci(cx,cy,cz);
     for(let z=0;z<nz;z++)for(let y=0;y<ny;y++)for(let x=x0;x<x1;x++){
-      const a=m[x+nx*(y+ny*z)];
-      if(x+1<nx){const b=m[x+1+nx*(y+ny*z)];if((a!==0)!==(b!==0)&&y>0&&z>0)quad(C(x,y-1,z-1),C(x,y,z-1),C(x,y,z),C(x,y-1,z),b!==0,a||b,a?x:x+1,y,z);}
-      if(y+1<ny&&x>0){const b=m[x+nx*(y+1+ny*z)];if((a!==0)!==(b!==0)&&z>0)quad(C(x-1,y,z-1),C(x,y,z-1),C(x,y,z),C(x-1,y,z),a!==0,a||b,x,a?y:y+1,z);}
-      if(z+1<nz&&x>0&&y>0){const b=m[x+nx*(y+ny*(z+1))];if((a!==0)!==(b!==0))quad(C(x-1,y-1,z),C(x,y-1,z),C(x,y,z),C(x-1,y,z),b!==0,a||b,x,y,a?z:z+1);}
+      const fa=Fd[fidx(x,y,z)],sa=fa>ISO;
+      if(x+1<nx&&y>0&&z>0){const sb=Fd[fidx(x+1,y,z)]>ISO;if(sa!==sb)quad(C(x,y-1,z-1),C(x,y,z-1),C(x,y,z),C(x,y-1,z),sb,sa?x:x+1,y,z);}
+      if(y+1<ny&&x>0&&z>0){const sb=Fd[fidx(x,y+1,z)]>ISO;if(sa!==sb)quad(C(x-1,y,z-1),C(x,y,z-1),C(x,y,z),C(x-1,y,z),sa,x,sa?y:y+1,z);}
+      if(z+1<nz&&x>0&&y>0){const sb=Fd[fidx(x,y,z+1)]>ISO;if(sa!==sb)quad(C(x-1,y-1,z),C(x,y-1,z),C(x,y,z),C(x-1,y,z),sb,x,y,sa?z:z+1);}
     }
     if(!pos.length)return;
-    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
     g.computeBoundingSphere();
     const mesh=new THREE.Mesh(g,this.mat);mesh.userData.vobj=this;this.slabs[si]=mesh;this.g.add(mesh);
   }
 }
+const NB6=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
 const SLAB=16;
 const CO=[[0,0,0],[1,0,0],[0,1,0],[1,1,0],[0,0,1],[1,0,1],[0,1,1],[1,1,1]];
 const EDGES=[[0,1],[2,3],[4,5],[6,7],[0,2],[1,3],[4,6],[5,7],[0,4],[1,5],[2,6],[3,7]];

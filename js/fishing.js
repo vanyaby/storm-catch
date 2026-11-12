@@ -6,6 +6,7 @@ import { CANNON, world } from './physics.js';
 import { items, registerTool, toHolster, HANDS, mainHand, offHand, addPiece, removeItem, handMatrixBoat, grabPiece, snapToHand } from './interact.js';
 import { newFish, buildFish } from './voxel.js';
 import { hapPulse, hapCont, hapBoth } from './haptics.js';
+import { buildHand, setCurls, POSES } from './hands.js';
 
 export const F={state:'ready',lure:V(),lureVel:V(),depth:0,charge:0,bite:null,fish:null,tension:0,drag:.65,slackT:0,breakT:0,landT:0,
   reel:0,twitchV:0,act:0,biteCheck:1,waterT:0,slipAcc:0,clickAcc:0,swim:null,lureId:'spoon',hasLure:true,
@@ -30,7 +31,7 @@ function buildRod(){
   const crank=new THREE.Group();crank.position.set(-.038,-.015,-.005);reel.add(crank);
   const carm=new THREE.Mesh(new THREE.BoxGeometry(.006,.006,.07),metal);carm.position.z=-.035;crank.add(carm);
   const knob=new THREE.Mesh(new THREE.CylinderGeometry(.011,.011,.03,6),knobMat);knob.rotation.z=Math.PI/2;knob.position.set(-.016,0,-.07);crank.add(knob);
-  const knobHand=new THREE.Mesh(new THREE.BoxGeometry(.06,.04,.08),Mat(0xd4a24a,{roughness:.8}));knobHand.visible=false;knobHand.position.set(-.03,0,-.07);crank.add(knobHand);
+  const khm=buildHand();setCurls(khm,POSES.crank);const knobHand=khm.root;knobHand.visible=false;knobHand.position.set(-.03,.05,-.07);knobHand.rotation.x=-Math.PI/2;knobHand.scale.setScalar(.95);crank.add(knobHand);
   const segs=[];let parent=root;const N=6,SL=.36;
   for(let i=0;i<N;i++){const g=new THREE.Group();g.position.y=i===0?.46:SL;parent.add(g);
     const r0=.0105*(1-i/N)+.0024,r1=.0105*(1-(i+1)/N)+.0024;const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r0,SL,6),blank);m.position.y=SL/2;g.add(m);
@@ -39,7 +40,7 @@ function buildRod(){
   return {root,segs,tip,crank,knob,knobHand,ring,reel,bail,spool,dragKnob};
 }
 export const rod=buildRod();
-export function setCrankSide(){const s=save.rodHand==='right'?-1:1;rod.crank.position.x=.038*s;rod.knob.position.x=.016*s;rod.knobHand.position.x=.03*s;}
+export function setCrankSide(){const s=save.rodHand==='right'?-1:1;rod.crank.position.x=.038*s;rod.knob.position.x=.016*s;rod.knobHand.position.x=.03*s;rod.knobHand.scale.x=.95*s;}
 setCrankSide();
 export const rodItem=registerTool('rod',rod.root,b=>b.addShape(new CANNON.Box(new CANNON.Vec3(.025,1.25,.025)),new CANNON.Vec3(0,1.25,0)),.6,HOLSTER.rod,
   V(0,-.02,.16),new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2+.55,0,0)));
@@ -405,6 +406,7 @@ export function fishingVR(dt){
     }
     // feathering: finger back on the spool slows the lure in the air
     F.feather=F.state==='flying'&&trig&&!trigPrev?true:F.feather&&trig;
+    rh.fingerLine=trig&&(F.state==='wind'||F.state==='flying');
     trigPrev=trig;
     if(tipVel.y>1.7&&vrFlickCd<=0){vrFlickCd=.4;if(F.state==='water')tryHook();else if(F.state==='landing')liftOrNet();}
   }else{trigPrev=false;if(F.state==='wind'){F.state='ready';setBail(false);arc.visible=false;ringMark.visible=false;}}
