@@ -225,7 +225,8 @@ function vrKnife(dt){
     const dirB=dir.clone().applyQuaternion(_inv);const sideways=Math.abs(dirB.x)>.6;   // pushing with the flat of the blade
     // inside material the blade advances only as fast as the force allows; outside it is free
     while(budget>1e-4&&guard++<24){
-      const sub=Math.min(budget,(cur.e>0||cur.b>0)?.002:.01);   // fine steps only while the blade is in the fishconst cand=KN.pos.clone().addScaledVector(dir,sub);const ev=evalPose(near,cand,RE,RB);
+      // fine steps only while the blade is in the fish
+      const sub=Math.min(budget,(cur.e>0||cur.b>0)?.002:.01);const cand=KN.pos.clone().addScaledVector(dir,sub);const ev=evalPose(near,cand,RE,RB);
       // the flat pushes the fish; the spine stops at the surface. Inside its own cut the blade slides freely.
       if(ev.b>cur.b&&(sideways||(cur.e===0&&cur.b===0&&!cutting))){state='body';break;}
       let limit=6*dt;
