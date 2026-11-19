@@ -1,6 +1,7 @@
 /* Штормовой улов — shared core: helpers, data, scene, sea, boat, audio, UI */
 import * as THREE from 'three';
 export { THREE };
+import { woodMaterial, addBoatDetails } from './materials.js';
 
 /* ---------------- helpers ---------------- */
 export const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -102,25 +103,25 @@ export function waveH(x,z){let h=0;for(const w of WAVES)h+=w[4]*Math.sin((w[0]*x
 const f4=n=>n.toFixed(4);
 const GLSL_WAVE=`float waveH(vec2 p){float h=0.0;`+WAVES.map(w=>`h+=${f4(w[4])}*sin(dot(vec2(${f4(w[0])},${f4(w[1])}),p)*${f4(w[2])}-${f4(w[3])}*uT+${f4(w[5])});`).join('')+`return h*uA*(0.15+0.85*smoothstep(3.5,11.0,length(p)));}`;
 
-const skyU={top:{value:new THREE.Color()},hor:{value:new THREE.Color()},sunc:{value:new THREE.Color()},sunDir:{value:V(-.4,.35,-.85).normalize()},flash:{value:0}};
+const skyU={top:{value:new THREE.Color()},hor:{value:new THREE.Color()},sunc:{value:new THREE.Color()},sunDir:{value:V(-.4,.35,-.85).normalize()},flash:{value:0},storm:{value:0},time:{value:0}};
 export const sky=new THREE.Mesh(new THREE.SphereGeometry(900,24,14),new THREE.ShaderMaterial({
   uniforms:skyU,side:THREE.BackSide,depthWrite:false,fog:false,
   vertexShader:`varying vec3 vDir;void main(){vDir=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-  fragmentShader:`uniform vec3 top;uniform vec3 hor;uniform vec3 sunc;uniform vec3 sunDir;uniform float flash;varying vec3 vDir;
+  fragmentShader:`uniform vec3 top;uniform vec3 hor;uniform vec3 sunc;uniform vec3 sunDir;uniform float flash,storm,time;varying vec3 vDir;
   void main(){vec3 d=normalize(vDir);float y=d.y;vec3 c=mix(hor,top,pow(clamp(y,0.0,1.0),0.55));if(y<0.0)c=hor*0.8;
+  float wisps=sin(d.y*92.0+d.x*8.0+sin(d.z*13.0+time*.008)*2.0)+.4*sin(d.y*213.0-d.x*22.0);
+  float cloud=smoothstep(.45,1.12,wisps)*smoothstep(.01,.08,y)*(1.-smoothstep(.42,.72,y));
+  c=mix(c,mix(hor*.92,top*.46,storm),cloud*(.25+.45*storm));
   float s=max(dot(d,sunDir),0.0);c+=sunc*(pow(s,300.0)*1.2+pow(s,12.0)*0.12);c+=vec3(flash*0.9,flash*0.95,flash);gl_FragColor=vec4(c,1.0);
   #include <colorspace_fragment>
   }`
 }));
 sky.renderOrder=-10;scene.add(sky);
-const seaU={uT:{value:0},uA:{value:.2},uDeep:{value:new THREE.Color()},uCrest:{value:new THREE.Color()},uFoam:{value:0}};
-const seaMat=new THREE.MeshStandardMaterial({color:0xffffff,flatShading:true,roughness:.55,metalness:.05,transparent:true,opacity:.72});
-seaMat.onBeforeCompile=sh=>{
-  Object.assign(sh.uniforms,seaU);
-  sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nuniform float uT;uniform float uA;varying float vH;\n'+GLSL_WAVE)
-   .replace('#include <begin_vertex>','vec3 transformed=vec3(position);vec4 wp0=modelMatrix*vec4(position,1.0);float hh=waveH(wp0.xz);transformed.y+=hh;vH=hh/max(uA,0.05);');
-  sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uDeep;uniform vec3 uCrest;uniform float uFoam;varying float vH;')
-   .replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.rgb=mix(uDeep,uCrest,smoothstep(0.15,1.5,vH));diffuseColor.rgb=mix(diffuseColor.rgb,vec3(0.93,0.96,0.96),uFoam*smoothstep(1.0,1.45,vH));');
+const seaU={uT:{value:0},uA:{value:.2},uDeep:{value:new THREE.Color()},uCrest:{value:new THREE.Color()},uFoam:{value:0},uSeaSky:{value:new THREE.Color()},uSeaTop:{value:new THREE.Color()},uSeaSun:{value:new THREE.Color()},uSeaSunDir:{value:skyU.sunDir.value},uSeaStorm:{value:0}};
+const seaMat=new THREE.MeshStandardMaterial({color:0xffffff,flatShading:true,roughness:.38,metalness:.08,transparent:true,opacity:.72});
+seaMat.onBeforeCompile=sh=>{ Object.assign(sh.uniforms,seaU);
+sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nuniform float uT;uniform float uA;varying float vH;varying vec3 vSeaW;\n'+GLSL_WAVE).replace('#include <begin_vertex>','vec3 transformed=vec3(position);vec4 wp0=modelMatrix*vec4(position,1.0);float hh=waveH(wp0.xz);transformed.y+=hh;vH=hh/max(uA,0.05);vSeaW=wp0.xyz+vec3(0.,hh,0.);');
+sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform vec3 uDeep,uCrest,uSeaSky,uSeaTop,uSeaSun,uSeaSunDir;uniform float uFoam,uSeaStorm,uT;varying float vH;varying vec3 vSeaW;').replace('#include <color_fragment>','#include <color_fragment>\ndiffuseColor.rgb=mix(uDeep,uCrest,smoothstep(.1,1.7,vH)*.38);').replace('#include <opaque_fragment>',"vec3 seaView=normalize(cameraPosition-vSeaW),seaNormal=inverseTransformDirection(normal,viewMatrix);\nfloat fres=.04+.76*pow(1.-max(dot(seaNormal,seaView),0.),4.);\nvec3 reflected=reflect(-seaView,seaNormal),skyColor=mix(uSeaSky,uSeaTop,smoothstep(0.,.75,reflected.y));\noutgoingLight=mix(outgoingLight,skyColor*.72,fres);\nfloat ripple=.72+.28*sin(vSeaW.x*4.2+vSeaW.z*7.7+uT*2.);\nfloat glint=pow(max(dot(reflected,uSeaSunDir),0.),180.)+pow(max(dot(reflected,uSeaSunDir),0.),28.)*.08;\noutgoingLight+=uSeaSun*glint*ripple*(1.-uSeaStorm*.85);\nfloat bow=clamp((vSeaW.x-1.4)/2.3,0.,1.),width=1.25*sqrt(max(0.,1.-bow*bow));\nfloat edge=max(abs(vSeaW.z)-width,max(-3.1-vSeaW.x,vSeaW.x-3.7));\nfloat hullFoam=(1.-smoothstep(.02,.34,abs(edge)))*step(-.03,edge)*(.35+.65*uFoam)*ripple;\nfloat crestFoam=smoothstep(.95,1.4,vH)*(.08+.72*uFoam)*ripple;\noutgoingLight=mix(outgoingLight,uCrest*.9,clamp(hullFoam+crestFoam,0.,.9));\ndiffuseColor.a=clamp(.70+fres*.23+crestFoam*.1,.0,.96);\n#include <opaque_fragment>");
 };
 const seaGeo=new THREE.PlaneGeometry(360,360,140,140);seaGeo.rotateX(-Math.PI/2);
 export const sea=new THREE.Mesh(seaGeo,seaMat);sea.frustumCulled=false;scene.add(sea);
@@ -147,10 +148,9 @@ function ringShape(outer,inner){const s=hullShape(outer);const h=hullShape(inner
 {
   const hullG=new THREE.ExtrudeGeometry(hullShape(0),{depth:1.05,bevelEnabled:false,curveSegments:5});hullG.rotateX(Math.PI/2);boat.add(new THREE.Mesh(hullG,Mat(0x7a2b22)));
   const bandG=new THREE.ExtrudeGeometry(hullShape(-.01),{depth:.42,bevelEnabled:false,curveSegments:5});bandG.rotateX(Math.PI/2);boat.add(new THREE.Mesh(bandG,Mat(0xe7dcc4)));
-  const deckG=new THREE.ShapeGeometry(hullShape(.06),5);deckG.rotateX(-Math.PI/2);const deck=new THREE.Mesh(deckG,Mat(0x9c7b55));deck.position.y=.01;boat.add(deck);
-  for(let i=-6;i<=6;i++){const p=new THREE.Mesh(new THREE.BoxGeometry(6.4,.004,.012),Mat(0x6f553a));p.position.set(.1,.014,i*.18);boat.add(p);}
-  const bwG=new THREE.ExtrudeGeometry(ringShape(0,.07),{depth:.92,bevelEnabled:false,curveSegments:5});bwG.rotateX(-Math.PI/2);boat.add(new THREE.Mesh(bwG,Mat(0x2f6b73)));
-  const capG=new THREE.ExtrudeGeometry(ringShape(-.02,.09),{depth:.05,bevelEnabled:false,curveSegments:5});capG.rotateX(-Math.PI/2);const cap=new THREE.Mesh(capG,Mat(0xa77d4f));cap.position.y=.92;boat.add(cap);
+  const deckG=new THREE.ShapeGeometry(hullShape(.06),5);deckG.rotateX(-Math.PI/2);const deck=new THREE.Mesh(deckG,woodMaterial(0xa78860));deck.position.y=.01;boat.add(deck);
+  const bwG=new THREE.ExtrudeGeometry(ringShape(0,.07),{depth:.92,bevelEnabled:false,curveSegments:5});bwG.rotateX(-Math.PI/2);boat.add(new THREE.Mesh(bwG,woodMaterial(0x46808a)));
+  const capG=new THREE.ExtrudeGeometry(ringShape(-.02,.09),{depth:.05,bevelEnabled:false,curveSegments:5});capG.rotateX(-Math.PI/2);const cap=new THREE.Mesh(capG,woodMaterial(0xb48b5c));cap.position.y=.92;boat.add(cap);
   for(let i=0;i<14;i++){const p=new THREE.Mesh(new THREE.BoxGeometry(rand(.2,.5),rand(.1,.25),.01),Mat(0x5c9aa0));const side=i%2?1:-1;p.position.set(rand(-2.8,1.3),rand(.25,.75),side*1.255);boat.add(p);}
   const wh=new THREE.Group();wh.position.set(-1.85,0,0);boat.add(wh);
   const walls=new THREE.Mesh(new THREE.BoxGeometry(1.6,2.05,1.8),Mat(0xe9e1cc));walls.position.y=1.02;wh.add(walls);
@@ -163,11 +163,12 @@ function ringShape(outer,inner){const s=hullShape(outer);const h=hullShape(inner
   const mast=new THREE.Mesh(new THREE.CylinderGeometry(.05,.07,4.2,6),Mat(0x8a6a45));mast.position.set(2.4,2.1,0);boat.add(mast);
   for(let i=0;i<3;i++){const c=new THREE.Mesh(new THREE.BoxGeometry(.5,.32,.4),Mat(0x8c6a42));c.position.set(-2.75,.16+(i===2?.32:0),i===2?-.2:(i?.25:-.25));boat.add(c);}
 }
+addBoatDetails(boat);
 export const TABLE={x:1.3,z:-.32,top:.93};
 {
-  const top=new THREE.Mesh(new THREE.BoxGeometry(.72,.06,1.45),Mat(0x7d6346));top.position.set(TABLE.x,.87,TABLE.z);boat.add(top);
+  const top=new THREE.Mesh(new THREE.BoxGeometry(.72,.06,1.45),woodMaterial(0x8e7152));top.position.set(TABLE.x,.87,TABLE.z);boat.add(top);
   for(const [dx,dz] of [[-.3,-.65],[.3,-.65],[-.3,.65],[.3,.65]]){const l=new THREE.Mesh(new THREE.BoxGeometry(.06,.84,.06),Mat(0x5c4732));l.position.set(TABLE.x+dx,.42,TABLE.z+dz);boat.add(l);}
-  const board=new THREE.Mesh(new THREE.BoxGeometry(.56,.03,1.3),Mat(0xd9c49a,{roughness:.95}));board.position.set(TABLE.x,.915,TABLE.z);boat.add(board);
+  const board=new THREE.Mesh(new THREE.BoxGeometry(.56,.03,1.3),woodMaterial(0xe0caa1,true));board.position.set(TABLE.x,.915,TABLE.z);boat.add(board);
   // magnetic knife strip on the table's near edge
   const strip=new THREE.Mesh(new THREE.BoxGeometry(.03,.05,.35),Mat(0x2b2f31,{metalness:.6,roughness:.4}));strip.position.set(TABLE.x-.38,.93,TABLE.z+.45);boat.add(strip);
 }
@@ -179,7 +180,10 @@ export const ICE=new THREE.Group();ICE.position.set(1.28,0,.78);boat.add(ICE);
 {
   const m=Mat(0x3d7f9a);const body=new THREE.Mesh(new THREE.BoxGeometry(.56,.62,.5),m);body.position.y=.31;ICE.add(body);
   const inner=new THREE.Mesh(new THREE.BoxGeometry(.5,.02,.44),Mat(0xe6f3f6,{roughness:.3}));inner.position.y=.6;ICE.add(inner);
-  for(let i=0;i<10;i++){const c=new THREE.Mesh(new THREE.BoxGeometry(.06,.05,.06),Mat(0xd8f0f6,{roughness:.2,transparent:true,opacity:.9}));c.position.set(rand(-.2,.2),.62,rand(-.18,.18));c.rotation.set(rand(0,1),rand(0,1),0);ICE.add(c);}
+  const iceMat=Mat(0xc5eff7,{roughness:.12,metalness:.18,transparent:true,opacity:.72,depthWrite:false});
+  iceMat.onBeforeCompile=sh=>{sh.fragmentShader=sh.fragmentShader.replace('#include <opaque_fragment>','outgoingLight+=vec3(.20,.36,.40)*pow(1.-max(dot(normal,normalize(vViewPosition)),0.),3.);\n#include <opaque_fragment>');};
+  const chips=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0),iceMat,32),dummy=new THREE.Object3D();
+  for(let i=0;i<32;i++){dummy.position.set(rand(-.22,.22),.62+rand(0,.025),rand(-.19,.19));dummy.rotation.set(rand(0,3),rand(0,3),rand(0,3));dummy.scale.set(rand(.025,.055),rand(.018,.035),rand(.025,.05));dummy.updateMatrix();chips.setMatrixAt(i,dummy.matrix);}ICE.add(chips);
   ICE.userData.mat=m;
 }
 export const iceContent=new THREE.Group();iceContent.position.y=.64;ICE.add(iceContent);
@@ -215,7 +219,7 @@ export function lureModel(l){
 export const TACKLE=new THREE.Group();TACKLE.position.set(-.5,.48,-.42);TACKLE.rotation.y=.4;boat.add(TACKLE);
 export const tackleSlots=[];
 {
-  const crate=new THREE.Mesh(new THREE.BoxGeometry(.42,.46,.36),Mat(0x8c6a42));crate.position.y=-.25;TACKLE.add(crate);
+  const crate=new THREE.Mesh(new THREE.BoxGeometry(.42,.46,.36),woodMaterial(0x9c7d52));crate.position.y=-.25;TACKLE.add(crate);
   const tray=new THREE.Mesh(new THREE.BoxGeometry(.4,.05,.3),Mat(0x2d5a63));TACKLE.add(tray);
   for(let i=0;i<5;i++){
     const div=new THREE.Mesh(new THREE.BoxGeometry(.004,.05,.3),Mat(0x22454c));div.position.set(-.2+i*.08,.01,0);TACKLE.add(div);
@@ -331,12 +335,13 @@ export function updateEnv(dt){
   blendPal(S.storm);
   skyU.top.value.copy(curPal.top);skyU.hor.value.copy(curPal.hor);skyU.sunc.value.copy(curPal.sun);
   scene.fog.color.copy(curPal.hor).multiplyScalar(.95);scene.fog.near=curPal.fn;scene.fog.far=curPal.ff;
+  seaU.uSeaSky.value.copy(curPal.hor);seaU.uSeaTop.value.copy(curPal.top);seaU.uSeaSun.value.copy(curPal.sun);seaU.uSeaStorm.value=S.storm;
   seaU.uDeep.value.copy(curPal.sea);seaU.uCrest.value.copy(curPal.crest);seaU.uFoam.value=smooth(.45,.9,S.storm);
   hemi.color.copy(curPal.hs);hemi.groundColor.copy(curPal.hg);sun.color.copy(curPal.dc);
   S.flashT-=dt;let flash=0;
   if(S.storm>.68&&Math.random()<dt*.12*(S.storm-.6)*6){S.flashT=.25;sfx.thunder(rand(.4,1.6));}
   if(S.flashT>0)flash=S.flashT/.25*(Math.random()<.7?1:.4);
-  skyU.flash.value=flash*.8;hemi.intensity=curPal.hi+flash*3;sun.intensity=curPal.di+flash*2;
+  skyU.storm.value=S.storm;skyU.time.value=S.T;skyU.flash.value=flash*.8;hemi.intensity=curPal.hi+flash*3;sun.intensity=curPal.di+flash*2;
   S.rainI=smooth(.42,.85,S.storm);rain.material.opacity=S.rainI*.5;
   const rp=rainGeo.attributes.position;const fall=(14+S.storm*10)*dt;const cp=camera.getWorldPosition(_v2);
   rain.position.set(cp.x,0,cp.z);

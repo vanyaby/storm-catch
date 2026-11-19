@@ -1,7 +1,9 @@
 /* Layered fish. The body is a smooth shape; what is inside (skin, meat, backbone, ribs, belly cavity, head)
    is computed from the position, never stored. A piece is that shape cut by a list of planes, so a fish can be
    cut anywhere and at any angle. The cut face is drawn by the shader from the same layer rules. */
-import { THREE, S, V, clamp, smooth, hash, TAU, sun, hemi, save } from './core.js';
+import { THREE, S, V, clamp, smooth, hash, TAU, sun, hemi, save, msg } from './core.js';
+
+import { organSamples, organGeometry, skinGeometry, skinMaterial } from './tissue.js';
 
 export const M={E:0,SKIN:1,FLESH:2,BLOOD:3,BONE:4,HEAD:5,GILL:6,EYE:7,FIN:8,STOMACH:9,LIVER:10,GUT:11,ROE:12,GALL:13,LINING:14,RIB:15,SKIN2:16,CAV:20};
 export const ORGAN_NAME={[M.STOMACH]:'Желудок',[M.LIVER]:'Печень',[M.GUT]:'Кишечник',[M.ROE]:'Икра',[M.GALL]:'Жёлчный пузырь'};
@@ -82,7 +84,7 @@ const thetaOf=(f,p,xn)=>{const w=Math.max(f.d.W(xn),.002),h=Math.max(f.d.H(xn),.
 /* ---------- objects: a fish piece or an organ ---------- */
 const shared={uSunDir:{value:V(0,1,0)},uSunCol:{value:new THREE.Color()},uSky:{value:new THREE.Color()},uGround:{value:new THREE.Color()},uTime:{value:0},uWater:{value:new THREE.Color(0x0a3d4b)}};
 export function updateFishShading(){
-  for(const ob of fishObjects)if(ob.mat)ob.mat.uniforms.uFresh.value=clamp(ob.fish.fresh,0,1);
+  for(const ob of fishObjects)if(ob.kind==='fish'&&ob.mat)ob.mat.uniforms.uFresh.value=clamp(ob.fish.fresh,0,1);
   shared.uSunDir.value.copy(sun.position).normalize();shared.uSunCol.value.copy(sun.color).multiplyScalar(sun.intensity);
   shared.uSky.value.copy(hemi.color).multiplyScalar(hemi.intensity);shared.uGround.value.copy(hemi.groundColor).multiplyScalar(hemi.intensity);shared.uTime.value=S.T;
 }
@@ -99,7 +101,7 @@ export class FObj{
   }
   worldBounds(out=new THREE.Box3()){
     this.g.updateWorldMatrix(true,false);
-    if(this.kind==='organ')return out.setFromObject(this.g);
+    if(this.kind!=='fish')return out.setFromObject(this.g);
     const matrix=this.g.matrixWorld;
     if(!this.bounds||!this.boundsMatrix||!this.boundsMatrix.equals(matrix)){
       this.bounds=this.bounds||new THREE.Box3();this.bounds.makeEmpty();const f=this.fish,p=V();
@@ -108,9 +110,10 @@ export class FObj{
     }
     return out.copy(this.bounds);
   }
-  get count(){if(this.kind!=='fish')return 1;let n=0;for(let i=0;i<this.keep.length;i++)n+=this.keep[i];return n;}
+  get count(){if(!this.keep)return 1;let n=0;for(let i=0;i<this.keep.length;i++)n+=this.keep[i];return n;}
   inside(p){for(const q of this.planes)if(q.x*p.x+q.y*p.y+q.z*p.z>q.w)return false;return true;}
   flushMeshes(){
+    if(this.kind==='organ'){this.mesh.geometry.dispose();this.mesh.geometry=organGeometry(this.c,this.r,this.planes);this.bounds=null;return;}
     if(this.kind!=='fish')return;const u=this.mat.uniforms;
     for(let i=0;i<MAXP;i++)u.uPl.value[i].copy(this.planes[i]||V4(0,0,0,1));u.uNp.value=Math.min(MAXP,this.planes.length);
     for(let i=0;i<MAXN;i++){const nn=this.notches[i];u.uNo.value[i].copy(nn?nn.p:V4(0,0,0,1));u.uNoC.value[i].copy(nn?nn.c:V4(0,0,0,-1));}
@@ -121,19 +124,17 @@ export class FObj{
   dispose(){
     if(this.disposed)return;this.disposed=true;fishObjects.delete(this);
     if(this.mat)this.mat.dispose();for(const o of this.organs)o.dispose();
-    if(this.kind==='organ')for(const o of this.g.children){o.geometry?.dispose();o.material?.dispose();}
+    if(this.kind!=='fish')for(const o of this.g.children){o.geometry?.dispose();o.material?.map?.dispose();o.material?.dispose();}
     const f=this.fish;if(--f.refs===0){f.geo.dispose();f.skinTex.dispose();}
   }
 }
 const V4=(x,y,z,w)=>new THREE.Vector4(x,y,z,w);
 
-function makeOrgan(fish,mat,c,r){
+function makeOrgan(fish,mat,c,r,samples=null){
   const ob=new FObj(fish,'organ');ob.organ=mat;ob.c=c.clone();ob.r=r.clone();
-  const g=new THREE.SphereGeometry(1,16,12);const pa=g.attributes.position;
-  for(let i=0;i<pa.count;i++){const x=pa.getX(i),y=pa.getY(i),z=pa.getZ(i);const k=1+.08*Math.sin(x*7+y*5)+.05*Math.sin(z*9);pa.setXYZ(i,x*k,y*k,z*k);}
-  g.computeVertexNormals();
-  const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:ORGAN_COL[mat],roughness:.32,metalness:.05,emissive:0}));
-  m.scale.copy(r);m.position.copy(c);ob.g.add(m);m.userData.vobj=ob;
+  ob.samples=samples||organSamples(c,r);ob.keep=new Uint8Array(ob.samples.N).fill(1);
+  const m=new THREE.Mesh(organGeometry(c,r,[]),new THREE.MeshStandardMaterial({color:ORGAN_COL[mat],vertexColors:true,roughness:.28,metalness:.05,emissive:0}));
+  ob.mesh=m;ob.g.add(m);m.userData.vobj=ob;
   ob.anchor=V(c.x+r.x*.9,c.y,c.z);
   return ob;
 }
@@ -274,7 +275,11 @@ void main(){
     if(m>19.5){ // looking into the belly: the far wall of the cavity
       vec3 o=(vCam-uCavC)/uCavR,dd=dir/uCavR;float A=dot(dd,dd),B=dot(o,dd),C=dot(o,o)-1.;float D=B*B-A*C;
       float t2=D>0.?(-B+sqrt(D))/A:te;P=vCam+dir*t2;col=vec3(.42,.3,.3);nc=-normalize((P-uCavC)/(uCavR*uCavR));
-    }else col=layerCol(m,P);
+    }else{
+      col=layerCol(m,P);float xn=P.x/uL+.5;
+      float rim=sqrt(pow(P.y/max(Wf(xn),.002),2.)+pow(P.z/max(Hf(xn),.002),2.));
+      col=mix(col,uBloodC*.65,smoothstep(.68,.99,rim)*.20);
+    }
     n=normalize(mat3(modelMatrix)*nc);
     vec4 cp=projectionMatrix*viewMatrix*modelMatrix*vec4(P,1.);depth=clamp(cp.z/cp.w*.5+.5,0.,1.);
     spec=.2;
@@ -283,7 +288,13 @@ void main(){
   col=mix(col,vec3(grey)*.86,stale*.38);spec*=1.-stale*.45;
   float dl=max(dot(n,uSunDir),0.);vec3 amb=mix(uGround,uSky,n.y*.5+.5);
   vec3 lit=col*(uSunCol*dl+amb*.9)/3.14159;
-  vec3 v=normalize(cameraPosition-vW);vec3 hv=normalize(v+uSunDir);lit+=uSunCol*spec*pow(max(dot(n,hv),0.),40.)*.05;
+  vec3 v=normalize(cameraPosition-vW);vec3 hv=normalize(v+uSunDir);float fres=pow(1.-max(dot(n,v),0.),4.);
+  lit+=uSunCol*spec*pow(max(dot(n,hv),0.),64.)*.15;
+  lit+=uSky*fres*(.018+.045*spec);
+  if(gl_FrontFacing&&vFin<.5&&(uStripeOn>.5||uTuna>.5)){
+    vec3 pearl=.5+.5*cos(vec3(0.,2.1,4.2)+dot(n,v)*8.+vL.x*90.);
+    lit+=pearl*spec*fres*.075;
+  }
   lit+=vec3(.23,.16,.06)*uHi;
   if(vW.y<0.){lit=mix(uWater,lit,exp(vW.y*1.2));}
   gl_FragDepth=depth;
@@ -308,8 +319,9 @@ function makeMat(f){
 const _inv=new THREE.Matrix4(),_q=V();
 function localOf(ob,pW,out){ob.g.updateMatrixWorld(true);_inv.copy(ob.g.matrixWorld).invert();return out.copy(pW).applyMatrix4(_inv);}
 function matLocal(ob,p){
-  if(ob.kind==='organ'){const q=_q2.copy(p).sub(ob.c).divide(ob.r);return q.lengthSq()<=1?ob.organ:0;}
   if(!ob.inside(p))return 0;
+  if(ob.kind==='organ'){const q=_q2.copy(p).sub(ob.c).divide(ob.r);return q.lengthSq()<=1?ob.organ:0;}
+  if(ob.kind!=='fish')return 0;
   const f=ob.fish;let m=layerBase(f,p);
   if(m===M.SKIN){const xn=p.x/f.d.L+.5;const [r,g]=skinAt(f,xn,thetaOf(f,p,xn));m=r<128?M.FLESH:g<128?M.SKIN2:M.SKIN;}
   if(m===M.CAV)return 0;
@@ -333,8 +345,23 @@ function rubSkin(ob,ptsW,rad,channel){
     const u0=xn*128,v0=((th/TAU)%1+1)%1*64;
     for(let v=Math.floor(v0-dv);v<=Math.ceil(v0+dv);v++)for(let u=Math.floor(u0-du);u<=Math.ceil(u0+du);u++){
       if(u<0||u>127)continue;if(((u-u0)/du)**2+((v-v0)/dv)**2>1)continue;const vv=((v%64)+64)%64;const i=(vv*128+u)*4;
-      if(channel===0){if(f.skin[i]>0){f.skin[i]=0;f.skin[i+1]=0;n++;}}else if(f.skin[i]>0&&f.skin[i+1]>0){f.skin[i+1]=0;n++;}}}
+      if(channel===0){if(f.skin[i]>0){
+        const ux=(u+.5)/128,angle=(vv+.5)/64*TAU,ww=d.W(ux),hh=d.H(ux),surface=V(d.X(ux),Math.sin(angle)*ww,Math.cos(angle)*hh);
+        if(!ob.inside(surface))continue;
+        const pending=ob.peel||(ob.peel={area:0,center:V(),cells:[]});
+        const area=d.L/128*TAU/64*Math.hypot(ww*Math.cos(angle),hh*Math.sin(angle));
+        pending.area+=area;pending.center.addScaledVector(surface,area);pending.cells.push({xn:ux,th:angle,scaled:f.skin[i+1]<128});
+        f.skin[i]=0;f.skin[i+1]=0;n++;
+      }}else if(f.skin[i]>0&&f.skin[i+1]>0){f.skin[i+1]=0;n++;}}}
   if(n){f.skinTex.needsUpdate=true;ob.cut=true;}
+  if(channel===0&&ob.peel?.area>=.0015){
+    const peel=ob.peel;ob.peel=null;const skin=new FObj(f,'skin');skin.skinArea=peel.area;skin.cut=true;
+    const center=peel.center.divideScalar(peel.area),xn=center.x/d.L+.5;
+    const normal=V(0,center.y/Math.max(d.W(xn)**2,1e-6),center.z/Math.max(d.H(xn)**2,1e-6)).normalize();
+    skin.mesh=new THREE.Mesh(skinGeometry(peel.area),skinMaterial(f,peel.cells));skin.mesh.userData.vobj=skin;skin.g.add(skin.mesh);
+    ob.g.add(skin.g);skin.g.position.copy(center).addScaledVector(normal,.018);skin.g.quaternion.setFromUnitVectors(V(0,1,0),normal);
+    if(S.fn.onSkin)S.fn.onSkin(skin);else{skin.g.removeFromParent();skin.dispose();}
+  }
   return n;
 }
 export function scrape(ob,ptsW,rad){return rubSkin(ob,ptsW,rad,0);}
@@ -343,6 +370,8 @@ export function descale(ob,ptsW,rad){return rubSkin(ob,ptsW,rad,1);}
 /* ---------- cutting ---------- */
 /* split by the plane n·p = c (fish-local). The object keeps the n·p<=c side; returns the other side as a new object, or null */
 export function cutPiece(ob,n,c){
+  if(ob.kind==='skin')return null;
+  if(ob.kind==='organ')return cutOrgan(ob,n,c);
   const f=ob.fish;let a=0,b=0;const side=new Uint8Array(f.N);
   for(let i=0;i<f.N;i++){if(!ob.keep[i])continue;const s=n.x*f.pts[i*3]+n.y*f.pts[i*3+1]+n.z*f.pts[i*3+2]>c;side[i]=s?1:0;if(s)b++;else a++;}
   if(a<4||b<4)return null;
@@ -356,23 +385,47 @@ export function cutPiece(ob,n,c){
   // a plane through the belly opens it on both sides
   const cav=f.cav;const dc=Math.abs(n.dot(cav.c)-c)/Math.sqrt((n.x*cav.r.x)**2+(n.y*cav.r.y)**2+(n.z*cav.r.z)**2);
   if(dc<1){ob.open=true;nb.open=true;}
-  for(const o of [...ob.organs]){if(n.dot(o.c)>c){ob.organs.splice(ob.organs.indexOf(o),1);nb.organs.push(o);nb.g.add(o.g);}}
+  for(const o of [...ob.organs]){
+    const part=cutOrgan(o,n,c);
+    if(part){part.g.position.set(0,0,0);part.g.quaternion.identity();nb.organs.push(part);nb.g.add(part.g);}
+    else if(!o.keep.some((k,i)=>k&&n.x*o.samples.pts[i*3]+n.y*o.samples.pts[i*3+1]+n.z*o.samples.pts[i*3+2]<=c)){
+      ob.organs.splice(ob.organs.indexOf(o),1);nb.organs.push(o);nb.g.add(o.g);
+    }
+  }
   nb.g.position.copy(ob.g.position);nb.g.quaternion.copy(ob.g.quaternion);
   ob.bounds=null;nb.bounds=null;ob.flushMeshes();nb.flushMeshes();
   return nb;
 }
+export function damageOrgan(ob){
+  if(!ob.fish.bile&&[M.GALL,M.STOMACH,M.GUT].includes(ob.organ)){ob.fish.bile=true;msg('Задели потроха!','Желчь и содержимое попали на мясо, оно подешевеет',2.2);}
+}
+export function cutOrgan(ob,n,c){
+  if(ob.planes.length>=MAXP)return null;const f=ob.samples,side=new Uint8Array(f.N);let a=0,b=0;
+  for(let i=0;i<f.N;i++)if(ob.keep[i]){side[i]=n.x*f.pts[i*3]+n.y*f.pts[i*3+1]+n.z*f.pts[i*3+2]>c?1:0;if(side[i])b++;else a++;}
+  if(a<3||b<3)return null;damageOrgan(ob);
+  const nb=makeOrgan(ob.fish,ob.organ,ob.c,ob.r,ob.samples);nb.planes=ob.planes.map(p=>p.clone());
+  for(let i=0;i<f.N;i++){nb.keep[i]=ob.keep[i]&&side[i]?1:0;ob.keep[i]=ob.keep[i]&&!side[i]?1:0;}
+  ob.planes.push(V4(n.x,n.y,n.z,c));nb.planes.push(V4(-n.x,-n.y,-n.z,-c));ob.cut=nb.cut=true;
+  nb.g.position.copy(ob.g.position);nb.g.quaternion.copy(ob.g.quaternion);ob.flushMeshes();nb.flushMeshes();return nb;
+}
 export function addNotch(ob,n,c,center,radius){
+  if(ob.kind!=='fish')return;
   if(ob.notches.length>=MAXN)ob.notches.shift();ob.notches.push({p:V4(n.x,n.y,n.z,c),c:V4(center.x,center.y,center.z,radius)});ob.cut=true;
   const f=ob.fish,cav=f.cav;const dc=Math.abs(n.dot(cav.c)-c)/Math.sqrt((n.x*cav.r.x)**2+(n.y*cav.r.y)**2+(n.z*cav.r.z)**2);
   if(dc<1&&center.distanceTo(cav.c)<radius+Math.max(cav.r.x,cav.r.y,cav.r.z))ob.open=true;
   ob.flushMeshes();
 }
 /* samples of the piece near a plane, in fish-local space */
-export function nearPlane(ob,n,c,band){const f=ob.fish,out=[];for(let i=0;i<f.N;i++){if(!ob.keep[i])continue;const x=f.pts[i*3],y=f.pts[i*3+1],z=f.pts[i*3+2];if(Math.abs(n.x*x+n.y*y+n.z*z-c)<band)out.push(V(x,y,z));}return out;}
+export function nearPlane(ob,n,c,band){const f=ob.kind==='organ'?ob.samples:ob.fish,out=[];for(let i=0;i<f.N;i++){if(!ob.keep[i])continue;const x=f.pts[i*3],y=f.pts[i*3+1],z=f.pts[i*3+2];if(Math.abs(n.x*x+n.y*y+n.z*z-c)<band)out.push(V(x,y,z));}return out;}
 
 /* ---------- body for physics: three boxes along the fish (or one for an organ) ---------- */
 export function bodyShape(ob){
-  if(ob.kind==='organ')return {boxes:[{c:ob.c.clone(),h:ob.r.clone().multiplyScalar(.85)}],com:ob.c.clone(),mass:massOf(ob)};
+  if(ob.kind!=='fish'){
+    const lo=V(Infinity,Infinity,Infinity),hi=V(-Infinity,-Infinity,-Infinity),com=V();let count=0;
+    if(ob.kind==='organ'){const f=ob.samples;for(let i=0;i<f.N;i++)if(ob.keep[i]){const p=V().fromArray(f.pts,i*3);lo.min(p);hi.max(p);com.add(p);count++;}com.divideScalar(Math.max(1,count));}
+    else{ob.mesh.geometry.computeBoundingBox();lo.copy(ob.mesh.geometry.boundingBox.min);hi.copy(ob.mesh.geometry.boundingBox.max);com.addVectors(lo,hi).multiplyScalar(.5);}
+    return {boxes:[{c:lo.clone().add(hi).multiplyScalar(.5),h:hi.clone().sub(lo).multiplyScalar(.5).max(V(.003,.002,.003))}],com,mass:massOf(ob)};
+  }
   const f=ob.fish;const com=V();let n=0;let x0=1e9,x1=-1e9;
   for(let i=0;i<f.N;i++){if(!ob.keep[i])continue;const x=f.pts[i*3];com.x+=x;com.y+=f.pts[i*3+1];com.z+=f.pts[i*3+2];n++;if(x<x0)x0=x;if(x>x1)x1=x;}
   if(!n)return {boxes:[{c:V(),h:V(.01,.01,.01)}],com:V(),mass:.02};
@@ -383,7 +436,8 @@ export function bodyShape(ob){
   return {boxes,com,mass:massOf(ob)};
 }
 export function massOf(ob){
-  if(ob.kind==='organ'){const r=ob.r;return Math.max(.01,4/3*Math.PI*r.x*r.y*r.z*1050);}
+  if(ob.kind==='skin')return ob.skinArea*.001*1050;
+  if(ob.kind==='organ'){const r=ob.r;return 4/3*Math.PI*r.x*r.y*r.z*1050*ob.count/ob.samples.N;}
   return Math.max(.02,ob.fish.kg*ob.count/ob.fish.N);
 }
 export function stats(ob){
@@ -395,6 +449,7 @@ export function stats(ob){
 }
 export function evaluate(ob){
   const f=ob.fish,sp=f.sp;const fresh=.5+.5*f.fresh;const base=f.kg*sp.price;
+  if(ob.kind==='skin')return {kind:'Кожа',kg:massOf(ob),value:0,waste:true};
   if(ob.kind==='organ'){const kg=massOf(ob);
     if(ob.organ===M.ROE)return {kind:'Икра',kg,value:kg*sp.price*3.2*fresh*(f.bile?.8:1),waste:false};
     if(ob.organ===M.LIVER&&sp.liver)return {kind:'Печень трески',kg,value:kg*sp.price*1.8*fresh,waste:false};

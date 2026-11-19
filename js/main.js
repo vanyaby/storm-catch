@@ -77,9 +77,11 @@ const TUT=[
   {k:['netted','unhooked'],t:'Усталую мелкую рыбу можно взять рукой из воды. Крупную — подсаком с крюка у борта'},
   {k:['table'],t:'Отнесите рыбу на стол. Нож лежит у края стола'},
   {k:['open'],t:'Вспорите брюхо: проведите кончиком ножа неглубоко вдоль живота. Режет только нижняя кромка, в кожу нож упирается — слегка надавите'},
-  {k:['organ'],t:'Возьмите потроха рукой и бросьте в ведро. Поднимите рыбу — они свесятся сами'},
+  {k:['organ'],t:'Органы режутся внутри вскрытой рыбы и отдельно. Икру и печень трески — в лёд. Порез жёлчного, желудка или кишечника портит мясо'},
   {k:['chop'],t:'Хребет нож не берёт: рубите резким ударом или пилите, двигая лезвие вперёд-назад с нажимом. Слабая долгая вибрация — нож упёрся'},
+  {k:['skin'],t:'Ножом плашмя снимите кожу: появится лоскут. Возьмите его курком или боковой кнопкой и бросьте в ведро'},
   {k:['ice'],t:'Откройте крышку ящика со льдом за ручку и положите туда улов — продаётся только то, что во льду. Ножом плашмя можно сдвигать куски'},
+  {k:['port'],t:'Держите Y/B — домой. В порту наведите луч от руки на «Купить» или «Снова в море», нажмите курок'},
 ];
 S.fn.tut=key=>{const st=TUT[save.tutorial];if(!st||!st.k.includes(key))return;save.tutorial++;persist();sfx.coin();if(save.tutorial>=TUT.length)msg('Обучение пройдено','Удачной рыбалки!',2);};
 S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
@@ -100,7 +102,7 @@ ui.bVR.addEventListener('click',async()=>{
     s.addEventListener('end',()=>{
       endFishingVR();mouseRelease();
       if(knifeItem.desk)knifeItem.desk=false;toHolster(knifeItem);S.view='sea';rodToDesk();resetHint();
-    });if(S.gameState!=='sea')startTrip();
+    });if(S.gameState==='port'){placeVRPanel();drawVRPanel(portState.reason,portState.total);}else if(S.gameState!=='sea')startTrip();
   }catch(e){ui.vrNote.textContent='VR в этом окне недоступен. Откройте игру по ссылке на GitHub Pages в браузере Quest.';}
 });
 
@@ -115,9 +117,9 @@ for(let i=0;i<2;i++){
 const wristCanvas=document.createElement('canvas');wristCanvas.width=512;wristCanvas.height=320;
 const wristTex=new THREE.CanvasTexture(wristCanvas);wristTex.colorSpace=THREE.SRGBColorSpace;
 const wrist=new THREE.Mesh(new THREE.PlaneGeometry(.18,.1125),new THREE.MeshBasicMaterial({map:wristTex,transparent:true}));wrist.position.set(0,.05,.07);wrist.rotation.x=-1.0;
-const panelCanvas=document.createElement('canvas');panelCanvas.width=1024;panelCanvas.height=640;
+const panelCanvas=document.createElement('canvas');panelCanvas.width=512;panelCanvas.height=512;
 const panelTex=new THREE.CanvasTexture(panelCanvas);panelTex.colorSpace=THREE.SRGBColorSpace;
-const vrPanel=new THREE.Mesh(new THREE.PlaneGeometry(1.6,1),new THREE.MeshBasicMaterial({map:panelTex,transparent:true,depthTest:false}));vrPanel.position.set(0,1.5,-1.4);vrPanel.renderOrder=20;vrPanel.visible=false;rig.add(vrPanel);
+const vrPanel=new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.5),new THREE.MeshBasicMaterial({map:panelTex,transparent:true,depthTest:false}));vrPanel.position.set(0,1.5,-1.4);vrPanel.renderOrder=20;vrPanel.visible=false;rig.add(vrPanel);
 const tpMark=new THREE.Mesh(new THREE.RingGeometry(.18,.24,24),new THREE.MeshBasicMaterial({color:0x7fe0c0,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));tpMark.rotation.x=-Math.PI/2;tpMark.visible=false;boat.add(tpMark);
 const tpArcGeo=new THREE.BufferGeometry();tpArcGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(30*3),3));
 const tpArc=new THREE.Points(tpArcGeo,new THREE.PointsMaterial({color:0x7fe0c0,size:.03}));tpArc.frustumCulled=false;tpArc.visible=false;scene.add(tpArc);
@@ -165,7 +167,7 @@ function vrButtons(dt){
   // A/X: put everything on the table into the ice box. Hold Y/B: go home.
   for(const h of Object.values(HANDS)){if(!h||!h.src||!h.src.gamepad)continue;const g=h.src.gamepad;
     const a=!!(g.buttons[4]&&g.buttons[4].pressed),b=!!(g.buttons[5]&&g.buttons[5].pressed);
-    if(S.gameState==='port'){if(a&&!h.prev.a)startTrip();h.prev.a=a;continue;}
+    if(S.gameState==='port'){h.prev.a=a;continue;}
     h.prev.a=a;
     if(b){h.bHeld=(h.bHeld||0)+dt;if(h.bHeld>1.5){h.bHeld=-99;endTrip('home');}}else h.bHeld=0;}
 }
@@ -351,7 +353,7 @@ addEventListener('keydown',e=>{
     case 'KeyQ':clearBoard();break;
     case 'KeyF':flipPiece();break;
     case 'KeyG':pullOrgansDesk();break;
-    case 'KeyX':board.mode=NEXT[board.mode];if(board.mode==='h')autoHeight();sfx.click(.2);resetHint();msg(MODES[board.mode],{v:'Ведите мышью через рыбу от края до края',slit:'Неглубоко, вдоль живота, чтобы вскрыть брюхо',h:'Колесо мыши меняет высоту',s:'Водите мышью по коже',sc:'Водите мышью по коже: чешуя слетает, кожа остаётся'}[board.mode],1.3);break;
+    case 'KeyX':board.mode=NEXT[board.mode];if(board.mode==='h')autoHeight();sfx.click(.2);resetHint();msg(MODES[board.mode],{v:'Ведите мышью через рыбу от края до края',slit:'Неглубоко, вдоль живота, чтобы вскрыть брюхо',h:'Колесо мыши меняет высоту',s:'Водите мышью по коже: лоскут можно поднять и бросить в ведро',sc:'Водите мышью по коже: чешуя слетает, кожа остаётся'}[board.mode],1.3);break;
     case 'KeyR':goHome();break;
     case 'KeyM':toggleMute();break;
     case 'BracketRight':case 'Equal':setDrag(F.drag+.05);break;
@@ -376,7 +378,7 @@ const raycaster=new THREE.Raycaster();
 const boardTopY=()=>fishRoot.getWorldPosition(V()).y;
 function boardPointer(){raycaster.setFromCamera(ptr.ndc,camera);const y=boardTopY()+(board.mode==='h'?board.hY:.02);const t=(y-raycaster.ray.origin.y)/raycaster.ray.direction.y;if(!(t>0))return null;return raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction,t);}
 function pieceMeshes(){const a=[];for(const it of pieceItems())it.obj.traverse(o=>{if(o.isMesh){o.userData.it=it;a.push(o);}});return a;}
-function hitUnderCursor(){raycaster.setFromCamera(ptr.ndc,camera);for(const h of raycaster.intersectObjects(pieceMeshes(),false)){const ob=h.object.userData.vobj;if(!ob||ob.kind!=='fish')return h;if(ob.inside(ob.g.worldToLocal(h.point.clone())))return h;}return null;}
+function hitUnderCursor(){raycaster.setFromCamera(ptr.ndc,camera);for(const h of raycaster.intersectObjects(pieceMeshes(),false)){const ob=h.object.userData.vobj;if(!ob||ob.inside(ob.g.worldToLocal(h.point.clone())))return h;}return null;}
 function deskCutStart(e){
   if(e&&e.ctrlKey){const h=hitUnderCursor();if(h)mouseGrab(h.object.userData.it,h.point);return;}
   if(board.mode==='s'||board.mode==='sc')return;const p=boardPointer();if(p)desk.drag={a:p,b:p.clone(),na:ptr.ndc.clone(),nb:ptr.ndc.clone()};
@@ -501,13 +503,21 @@ function endTrip(reason){
   resetFishing();clearAnims();
   for(const it of pieceItems()){removeItem(it);disposeObject(it.obj);}
   const total=S.products.reduce((a,p)=>a+p.value,0);save.money+=Math.round(total);persist();if(total>0)sfx.coin();
-  renderPort(reason,total);ui.hud.hidden=true;ui.port.hidden=false;if(renderer.xr.isPresenting)drawVRPanel(reason,total);
+  S.fn.tut?.('port');renderPort(reason,total);ui.hud.hidden=true;ui.port.hidden=false;if(renderer.xr.isPresenting){placeVRPanel();drawVRPanel(reason,total);}
 }
 import { evaluate } from './fishbody.js';
 function evaluateSafe(it){try{return evaluate(it.vobj);}catch(e){return null;}}
 function groupedProducts(){const m=new Map();for(const p of S.products){const k=p.sp.id+'|'+p.kind;const g=m.get(k)||{sp:p.sp,kind:p.kind,n:0,kg:0,value:0};g.n++;g.kg+=p.kg;g.value+=p.value;m.set(k,g);}return [...m.values()].sort((a,b)=>b.value-a.value);}
 function hintFor(s){return{mackerel:'стаи под чайками, блесна или воблер',perch:'средняя глубина, джиг',cod:'дайте джигу или донке лечь на дно',halibut:'донка на самом дне, когда начнёт штормить',tuna:'край шторма, воблер на быстрой проводке',eel:'сердце шторма, светящийся твистер'}[s.id];}
+const portState={reason:'home',total:0,buttons:[],hover:new Set()};
+function buyUpgrade(key){
+  const u=UPG[key];if(S.gameState!=='port'||!u)return false;const next=save[key]+1;
+  if(next>=u.vals.length||save.money<u.cost[next])return false;
+  save.money-=u.cost[next];save[key]=next;persist();sfx.coin();renderPort(portState.reason,portState.total);
+  if(renderer.xr.isPresenting)drawVRPanel(portState.reason,portState.total);return true;
+}
 function renderPort(reason,total){
+  portState.reason=reason;portState.total=total;
   const rows=groupedProducts().map(p=>`<tr><td>${p.sp.name}</td><td>${p.kind}</td><td class="num">${p.n}</td><td class="num">${fmtKg(p.kg)}</td><td class="num">${Math.round(p.value)}</td></tr>`).join('');
   const head=reason==='wave'?'Девятый вал смыл палубу':'Причал';
   const sub=reason==='wave'?'Всё, что лежало на палубе и столе, ушло за борт. Ледник уцелел.':S.products.length?'Улов взвешен и продан.':'Сегодня море ничего не дало. Бывает.';
@@ -521,17 +531,60 @@ function renderPort(reason,total){
     <div class="total"><span>Выручка <span class="big">${Math.round(total)}</span></span><span>В кассе: <b>${save.money}</b> монет</span></div>
     <h2>Лавка снастей</h2><div class="shop">${shop}</div><h2>Журнал видов</h2><div class="journal">${jr}</div>
     <div class="row"><button class="btn" id="bAgain" type="button">Выйти в море снова</button><span class="note">или Enter</span></div>`;
-  ui.portCard.querySelectorAll('[data-buy]').forEach(b=>b.addEventListener('click',()=>{const k=b.dataset.buy,u=UPG[k],n=save[k]+1;if(save.money>=u.cost[n]){save.money-=u.cost[n];save[k]=n;persist();sfx.coin();renderPort(reason,total);}}));
+  ui.portCard.querySelectorAll('[data-buy]').forEach(b=>b.addEventListener('click',()=>{buyUpgrade(b.dataset.buy);}));
   document.getElementById('bAgain').addEventListener('click',()=>startTrip());
 }
 function drawVRPanel(reason,total){
-  const g=panelCanvas.getContext('2d');g.clearRect(0,0,1024,640);g.fillStyle='rgba(19,34,41,.94)';g.beginPath();g.roundRect(0,0,1024,640,36);g.fill();
-  g.fillStyle='#d0a54c';g.font='600 30px "Golos Text",sans-serif';g.fillText('ВЫЛАЗКА №'+save.trips,60,80);
-  g.fillStyle='#efe6d2';g.font='700 64px "Unbounded","Golos Text",sans-serif';g.fillText(reason==='wave'?'Девятый вал':'Причал',60,160);
-  g.font='500 34px "Golos Text",sans-serif';let y=230;for(const p of groupedProducts().slice(0,7)){g.fillText(`${p.sp.name} · ${p.kind} ×${p.n} · ${Math.round(p.value)}`,60,y);y+=44;}
-  g.fillStyle='#d0a54c';g.font='700 46px "Golos Text",sans-serif';g.fillText(`Выручка ${Math.round(total)} · в кассе ${save.money}`,60,560);
-  g.fillStyle='#b3ab98';g.font='500 28px "Golos Text",sans-serif';g.fillText('Кнопка A или X: снова в море. Снасти покупаются в обычном окне',60,610);
+  portState.reason=reason;portState.total=total;portState.buttons=[];
+  const g=panelCanvas.getContext('2d');g.clearRect(0,0,512,512);g.fillStyle='#132229';g.beginPath();g.roundRect(0,0,512,512,18);g.fill();
+  g.strokeStyle='#d0a54c';g.lineWidth=2;g.stroke();g.fillStyle='#d0a54c';g.font='600 14px sans-serif';g.fillText('ЧАЙКА / ВЫЛАЗКА №'+save.trips,24,28);
+  g.fillStyle='#efe6d2';g.font='700 28px sans-serif';g.fillText(reason==='wave'?'После девятого вала':'Причал',24,64);
+  g.font='600 18px sans-serif';g.fillText('Выручка '+Math.round(total)+' · В кассе '+save.money,24,94);
+  const rows=groupedProducts();g.font='14px sans-serif';g.fillStyle='#b3ab98';
+  if(!rows.length)g.fillText('В леднике пусто. Новый рейс — новый шанс.',24,122);
+  rows.slice(0,2).forEach((p,i)=>g.fillText(p.sp.name+' · '+p.kind+' · '+fmtKg(p.kg)+' кг · '+Math.round(p.value),24,121+i*19,464));
+  if(rows.length>2)g.fillText('И ещё позиций: '+(rows.length-2)+' · Весь улов учтён',24,159);
+  g.fillStyle='#d0a54c';g.font='600 18px sans-serif';g.fillText('Лавка снастей',24,190);
+  const button=(key,text,x,y,w,h,enabled)=>{
+    portState.buttons.push({key,x,y,w,h,enabled});g.fillStyle=!enabled?'#26383f':portState.hover.has(key)?'#f0cc77':'#d0a54c';g.fillRect(x,y,w,h);
+    g.fillStyle=enabled?'#0c161b':'#9ba8a7';g.font='600 17px sans-serif';g.textAlign='center';g.fillText(text,x+w/2,y+h/2+6);g.textAlign='left';
+  };
+  Object.entries(UPG).forEach(([key,u],i)=>{
+    const y=207+i*73,lvl=save[key],next=lvl+1,max=next>=u.vals.length,can=!max&&save.money>=u.cost[next];
+    g.fillStyle='#efe6d2';g.font='600 18px sans-serif';g.fillText(u.name+' · ур. '+(lvl+1)+'/'+u.vals.length,24,y+17);
+    g.fillStyle='#b3ab98';g.font='13px sans-serif';g.fillText(u.desc[lvl],24,y+37,307);
+    g.fillStyle=can?'#7fe0c0':'#b3ab98';g.fillText(max?'Улучшено полностью':u.cost[next]+' монет · '+(can?'хватает':'не хватает'),24,y+56);
+    button(key,max?'Куплено':'Купить',354,y+5,134,44,can);
+  });
+  button('again','Снова в море',24,444,464,42,true);
+  g.fillStyle='#b3ab98';g.font='13px sans-serif';g.fillText('Наведите луч от руки · Курок — нажать',24,505);
   panelTex.needsUpdate=true;vrPanel.visible=true;
+}
+function placeVRPanel(){
+  const head=renderer.xr.getCamera(camera),p=head.getWorldPosition(V()),d=head.getWorldDirection(V()).setY(0).normalize();
+  if(d.lengthSq()<.5)d.set(0,0,-1);scene.attach(vrPanel);vrPanel.position.copy(p).addScaledVector(d,1.65);vrPanel.position.y-=.10;vrPanel.lookAt(p);
+}
+const portRaycaster=new THREE.Raycaster(),portRays=new Map();
+function updateVRShop(){
+  const active=renderer.xr.isPresenting&&S.gameState==='port',hover=new Set();let click=null;
+  for(const h of Object.values(HANDS)){
+    if(!h?.src)continue;let line=portRays.get(h);
+    if(!line){const g=new THREE.BufferGeometry().setFromPoints([V(),V(0,0,-1)]);line=new THREE.Line(g,new THREE.LineBasicMaterial({color:0xd0a54c,transparent:true,opacity:.8,depthTest:false}));line.renderOrder=21;h.ctl.add(line);portRays.set(h,line);}
+    line.visible=active;const down=!!(h.src.gamepad?.buttons[0]?.value>.6);let button=null;
+    if(active){
+      h.ctl.updateWorldMatrix(true,false);portRaycaster.ray.origin.setFromMatrixPosition(h.ctl.matrixWorld);portRaycaster.ray.direction.set(0,0,-1).transformDirection(h.ctl.matrixWorld);
+      vrPanel.updateWorldMatrix(true,false);const hit=portRaycaster.intersectObject(vrPanel,false)[0];line.scale.z=hit?hit.distance:3;
+      if(hit){const x=hit.uv.x*512,y=(1-hit.uv.y)*512;button=portState.buttons.find(b=>x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h&&b.enabled);}
+      if(button){hover.add(button.key);if(down&&!h.shopDown&&!click)click={h,key:button.key};}
+      line.material.color.setHex(button?0x7fe0c0:0xd0a54c);
+    }
+    h.shopDown=down;
+  }
+  for(const [h,line] of portRays)if(!h.src||!active)line.visible=false;
+  if(!active){portState.hover.clear();return;}
+  if(click){hapPulse(click.h,.35,30);if(click.key==='again'){sfx.click();startTrip();return;}buyUpgrade(click.key);}
+  const changed=hover.size!==portState.hover.size||[...hover].some(k=>!portState.hover.has(k));
+  portState.hover=hover;if(changed||click)drawVRPanel(portState.reason,portState.total);
 }
 function stormEvents(dt){
   if(S.gameState!=='sea')return;
@@ -564,7 +617,7 @@ function updateHUD(dt){
   ui.gStam.style.width=(fight&&F.fish?F.fish.stamina*100:0)+'%';
   if(S.view==='table'){
     const any=pieceItems().some(onTable);
-    if(any)setHint('t-'+board.mode,{v:'<b>Рез насквозь.</b> Проведите <kbd>ЛКМ</kbd> через рыбу от края до края. ',slit:'<b>Надрез.</b> Ведите <kbd>ЛКМ</kbd> вдоль живота, чтобы вскрыть брюхо. ',h:'<b>Рез плашмя</b> по жёлтой плоскости, <kbd>колесо</kbd> меняет высоту. ',s:'<b>Снять кожу.</b> Водите <kbd>ЛКМ</kbd> по коже. ',sc:'<b>Чистить чешую.</b> Водите <kbd>ЛКМ</kbd> по коже: чешуя слетает, кожа светлеет. '}[board.mode]+'<kbd>X</kbd> режим, <kbd>G</kbd> достать потроха, <kbd>F</kbd> перевернуть, <kbd>Ctrl</kbd>+мышь поднять, <kbd>ПКМ</kbd> в лёд, <kbd>Shift</kbd>+<kbd>ПКМ</kbd> в ведро');
+    if(any)setHint('t-'+board.mode,{v:'<b>Рез насквозь.</b> Проведите <kbd>ЛКМ</kbd> через рыбу или орган от края до края. ',slit:'<b>Надрез.</b> Ведите <kbd>ЛКМ</kbd> вдоль живота, чтобы вскрыть брюхо. ',h:'<b>Рез плашмя</b> по жёлтой плоскости, <kbd>колесо</kbd> меняет высоту. ',s:'<b>Снять кожу.</b> Водите <kbd>ЛКМ</kbd>: появится лоскут. <kbd>Ctrl</kbd>+мышь — взять. ',sc:'<b>Чистить чешую.</b> Водите <kbd>ЛКМ</kbd> по коже: чешуя слетает, кожа светлеет. '}[board.mode]+'<kbd>X</kbd> режим, <kbd>G</kbd> достать потроха, <kbd>F</kbd> перевернуть, <kbd>Ctrl</kbd>+мышь поднять, <kbd>ПКМ</kbd> в лёд, <kbd>Shift</kbd>+<kbd>ПКМ</kbd> в ведро');
     else setHint('t-empty',board.loading?'Рыба ложится на доску…':'Стол пуст. <kbd>E</kbd> к борту');return;
   }
   switch(F.state){
@@ -587,7 +640,7 @@ function drawWrist(dt){
   wristTex.needsUpdate=true;
 }
 function vrHint(){
-  if(knifeItem.heldBy)return `Острота ножа ${Math.round(S.sharp*100)}%. Вдоль рыбы режет легче, поперёк туже. В кость упирается: рубите резким ударом. Точило — на столе`;
+  if(knifeItem.heldBy)return `Острота ножа ${Math.round(S.sharp*100)}%. Органы тоже режутся. Плашмя по коже — снять лоскут и взять рукой. В кость упирается: рубите или пилите. Точило — на столе`;
   if(scalerItem.heldBy)return 'Водите чешуечисткой по коже: чешуя слетает. Рыба без чешуи стоит дороже';
   switch(F.state){case 'ready':return rodInHand()?(F.hasLure?'Зажмите A/X, махните и отпустите. Курок — распустить леску. Приманку можно взять рукой и отстегнуть курком':'Карабин пуст: возьмите приманку из ящика и поднесите к карабину'):'Удочка в держателе у борта, подсак слева от неё, нож у стола';
     case 'water':return F.bite?'Клюёт! Ждите рывка и подсекайте вверх':LU[F.lureId].hint;
@@ -630,7 +683,7 @@ function frame(){
   if(vr){
     if(HANDS.left&&wrist.parent!==HANDS.left.grip)HANDS.left.grip.add(wrist);
     if(S.gameState==='sea'){vrLocomotion(dt);for(const k of ['left','right']){const h=HANDS[k];if(h)updateHand(h,dt,h.src&&h.src.gamepad);}fishingVR(dt);vrKnife(dt);vrScaler(dt);}
-    vrButtons(dt);
+    vrButtons(dt);updateVRShop();
     for(const k of ['left','right']){const h=HANDS[k];if(h)animateHand(h,dt);}
     updateTags(HANDS,dt);
   }else{
@@ -656,6 +709,6 @@ function frame(){
 rodToDesk();
 renderer.setAnimationLoop(frame);
 window.__game={KN,evalPose,kneeNear,BODY_LOCAL,KN_EDGE,hapLog,scalerItem,scaler,vrScaler,deckOK,walk,descale,forceHook,liftOrNet,THREE,CANNON,S,F,camera,scene,boat,fishRoot,rig,HANDS,updateHand,vrKnife,fishingVR,knife,rod,net,board,items,pieceItems,world,save,mouse,links,knifeItem,rodItem,netItem,
-  startTrip,endTrip,toIce,toBucket,knifeSweep,evaluate,autoHeight,
+  startTrip,endTrip,toIce,toBucket,knifeSweep,evaluate,autoHeight,buyUpgrade,vrPanel,portState,updateVRShop,
   step:n=>{stepDt=1/30;for(let i=0;i<n;i++)frame();stepDt=0;},
   spawnDeck:(id,L)=>{const sp=SP[id];const len=L||lerp(sp.len[0],sp.len[1],.5);const f=newFish(sp,len,Math.round(sp.k*len**3*100)/100);const ob=buildFish(f);boat.add(ob.g);ob.g.position.copy(DECK_SPOT).add(V(0,.15,0));ob.g.quaternion.setFromAxisAngle(UP,Math.PI/2);return addPiece(ob);}};

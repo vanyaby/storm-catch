@@ -4,7 +4,7 @@ import { evaluate } from './fishbody.js';
 
 const TOOLS={
   rod:['Удочка','A/X — палец на леске: махните и отпустите. Курок — распустить леску'],
-  knife:['Нож','Режет только нижней светлой кромкой. Плашмя толкает куски'],
+  knife:['Нож','Кромка режет рыбу и органы. Плашмя — снять кожу лоскутом'],
   scaler:['Скребок','Водите по коже — снимает чешую'],
   net:['Подсак','Подведите под рыбу у борта'],
 };
@@ -25,13 +25,14 @@ function draw(tag,title,sub,hint){
 }
 function describe(it){
   if(it.type==='ice')return ['Ящик со льдом',`Кусков: ${S.products.length} · ${Math.round(S.products.reduce((sum,p)=>sum+p.value,0))} монет`,'Откройте крышку за ручку'];
-  if(it.type==='organIn')return ['Потроха','внутри рыбы','Возьмите рукой и бросьте в ведро'];
+  if(it.type==='organIn'){const ev=evaluate(it.org);return [ev.kind,fmtKg(ev.kg)+' кг · внутри рыбы','Режьте ножом или возьмите рукой. Ценное — в лёд'];}
   if(it.type==='tool'){const t=TOOLS[it.tool]||[it.tool,''];return [t[0],'Боковая кнопка — взять',t[1]];}
   const ob=it.vobj;const ev=evaluate(ob);const fresh=Math.round(ob.fish.fresh*100);
   const sub=`${fmtKg(ev.kg)} кг · ${ev.waste?'отходы':Math.round(ev.value)+' монет'} · свежесть ${fresh}%`;
   let hint;
-  if(ev.waste)hint='В ведро';
-  else if(ob.kind==='organ')hint='Ценное — в ящик со льдом';
+  if(ob.kind==='skin')hint='Лоскут: возьмите курком или боковой кнопкой, бросьте в ведро';
+  else if(ev.waste)hint=ob.kind==='organ'?'Можно резать ножом. Отходы — в ведро':'В ведро';
+  else if(ob.kind==='organ')hint='Можно резать ножом. Ценное — в ящик со льдом';
   else if(it.body&&it.body.mass>6)hint='Тяжёлая: возьмите двумя руками. Разделайте на столе';
   else if(ob.organs.length)hint=ob.open?'Брюхо вскрыто: достаньте потроха':'Вспорите брюхо ножом';
   else hint='Положите в ящик со льдом. Курок — взять щепотью, боковая — всей рукой';
@@ -40,8 +41,8 @@ function describe(it){
 export function updateTags(HANDS,dt){
   for(const k of ['left','right']){
     const h=HANDS[k];let tag=tags.get(k);if(!tag){tag=makeTag();tags.set(k,tag);}
-    let it=h&&!h.held&&save.tags!=='off'?h.hover:null;
-    if(!it&&h&&!h.held&&!h.crank&&!h.heldLure&&save.tags!=='off'){
+    let it=h&&!h.held&&S.gameState==='sea'&&save.tags!=='off'?(h.organHover||h.hover):null;
+    if(!it&&S.gameState==='sea'&&h&&!h.held&&!h.crank&&!h.heldLure&&save.tags!=='off'){
       const iceBox=new THREE.Box3().setFromObject(ICE);
       if(iceBox.distanceToPoint(h.grip.getWorldPosition(V()))<.12)it={type:'ice',obj:ICE};
     }
