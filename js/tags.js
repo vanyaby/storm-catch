@@ -1,5 +1,5 @@
 /* A small sign in front of whatever a hand is reaching for: what it is, its weight, and what you can do with it. */
-import { THREE, V, scene, camera, save, fmtKg } from './core.js';
+import { THREE, V, scene, camera, save, fmtKg, ICE, S } from './core.js';
 import { evaluate } from './fishbody.js';
 
 const TOOLS={
@@ -24,8 +24,9 @@ function draw(tag,title,sub,hint){
   tag.tex.needsUpdate=true;
 }
 function describe(it){
+  if(it.type==='ice')return ['Ящик со льдом',`Кусков: ${S.products.length} · ${Math.round(S.products.reduce((sum,p)=>sum+p.value,0))} монет`,'Откройте крышку за ручку'];
   if(it.type==='organIn')return ['Потроха','внутри рыбы','Возьмите рукой и бросьте в ведро'];
-  if(it.type==='tool'){const t=TOOLS[it.tool]||[it.tool,''];return [t[0],'',t[1]];}
+  if(it.type==='tool'){const t=TOOLS[it.tool]||[it.tool,''];return [t[0],'Боковая кнопка — взять',t[1]];}
   const ob=it.vobj;const ev=evaluate(ob);const fresh=Math.round(ob.fish.fresh*100);
   const sub=`${fmtKg(ev.kg)} кг · ${ev.waste?'отходы':Math.round(ev.value)+' монет'} · свежесть ${fresh}%`;
   let hint;
@@ -39,10 +40,14 @@ function describe(it){
 export function updateTags(HANDS,dt){
   for(const k of ['left','right']){
     const h=HANDS[k];let tag=tags.get(k);if(!tag){tag=makeTag();tags.set(k,tag);}
-    const it=h&&!h.held&&save.tags!=='off'?h.hover:null;
+    let it=h&&!h.held&&save.tags!=='off'?h.hover:null;
+    if(!it&&h&&!h.held&&!h.crank&&!h.heldLure&&save.tags!=='off'){
+      const iceBox=new THREE.Box3().setFromObject(ICE);
+      if(iceBox.distanceToPoint(h.grip.getWorldPosition(V()))<.12)it={type:'ice',obj:ICE};
+    }
     if(!it){tag.sp.visible=false;tag.key='';continue;}
     const obj=it.type==='organIn'?it.org.g:it.obj;
-    const box=new THREE.Box3().setFromObject(obj);if(box.isEmpty()){tag.sp.visible=false;continue;}
+    const box=it.vobj?it.vobj.worldBounds():new THREE.Box3().setFromObject(obj);if(box.isEmpty()){tag.sp.visible=false;continue;}
     const c=box.getCenter(V());c.y=box.max.y+.07;
     // a little toward the viewer so it is in front of the item
     const cam=camera.getWorldPosition(V());c.addScaledVector(cam.clone().sub(c).setY(0).normalize(),.05);

@@ -67,7 +67,7 @@ function link(a,b,anchor){
   const line=new THREE.Line(g,new THREE.LineBasicMaterial({color:0xa8484a}));line.frustumCulled=false;boat.add(line);
   const l={a,b,anchor:anchor.clone(),line};l.c=makeLinkConstraint(l);world.addConstraint(l.c);links.push(l);return l;
 }
-function unlink(l,silent){world.removeConstraint(l.c);boat.remove(l.line);l.line.geometry.dispose();links.splice(links.indexOf(l),1);if(!silent){sfx.squelch();hapBoth(.7,80);}}
+function unlink(l,silent){world.removeConstraint(l.c);boat.remove(l.line);l.line.geometry.dispose();l.line.material.dispose();links.splice(links.indexOf(l),1);if(!silent){sfx.squelch();hapBoth(.7,80);}}
 export function updateLinks(){
   for(const l of [...links]){
     if(l.a.body)l.b.body.wakeUp();
@@ -118,7 +118,7 @@ export function grabPiece(h,it){
   S.fn.onGrabPiece?.(it,h);
   h.held=it;it.heldBy=it.heldBy||h;setHi(it,false);it.body.wakeUp();
   const other=Object.values(HANDS).find(o=>o&&o!==h&&o.held===it);
-  const light=(it.body.mass<=6||other)&&!h.pinch;
+  const light=(it.body.mass<=6||other)&&(!h.pinch||!!other);
   // remember where the piece sits relative to the hand
   const hm=handMatrixBoat(h,new THREE.Matrix4());it.obj.updateMatrix();h.offset=new THREE.Matrix4().multiplyMatrices(hm.clone().invert(),it.obj.matrix);
   if(light){it.kinematic=true;it.body.type=CANNON.Body.KINEMATIC;it.body.updateMassProperties();it.body.velocity.setZero();it.body.angularVelocity.setZero();}
@@ -134,7 +134,8 @@ function regrab(h){
   const it=h.held;if(!it||it.kinematic)return;const hp=boat.worldToLocal(h.grip.getWorldPosition(V()));
   h.kin=h.kin||(()=>{const b=new CANNON.Body({mass:0,type:CANNON.Body.KINEMATIC});b.collisionResponse=false;world.addBody(b);return b;})();
   h.kin.position.set(hp.x,hp.y,hp.z);const piv=it.body.pointToLocalFrame(new CANNON.Vec3(hp.x,hp.y,hp.z));
-  h.p2p=new CANNON.PointToPointConstraint(it.body,piv,h.kin,new CANNON.Vec3(0,0,0),160);world.addConstraint(h.p2p);
+  const force=it.body.mass>6&&!h.pinch?it.body.mass*9.8*.6:160;
+  h.p2p=new CANNON.PointToPointConstraint(it.body,piv,h.kin,new CANNON.Vec3(0,0,0),force);world.addConstraint(h.p2p);
 }
 function handVel(h){const hs=h.hist;if(hs.length<2)return V();const a=hs[0],b=hs[hs.length-1];const dt=b.t-a.t;return dt>1e-3?b.p.clone().sub(a.p).divideScalar(dt):V();}
 function dropHeld(h,silent){
@@ -145,7 +146,7 @@ function dropHeld(h,silent){
     if(o){o.second=false;o.tw=null;it.heldBy=o;o.grip.attach(it.obj);return;}}
   const still=Object.values(HANDS).find(o=>o&&o!==h&&o.held===it);
   if(still){it.heldBy=still;const hm=handMatrixBoat(still,new THREE.Matrix4());it.obj.updateMatrix();still.offset=new THREE.Matrix4().multiplyMatrices(hm.clone().invert(),it.obj.matrix);
-    if(it.body&&it.body.mass>6&&it.kinematic){it.kinematic=false;it.body.type=CANNON.Body.DYNAMIC;it.body.updateMassProperties();it.body.wakeUp();regrab(still);}
+    if(it.body&&(it.body.mass>6||still.pinch)&&it.kinematic){it.kinematic=false;it.body.type=CANNON.Body.DYNAMIC;it.body.updateMassProperties();it.body.wakeUp();regrab(still);}
     return;}
   it.heldBy=null;
   const v=handVel(h).clampLength(0,6),w=h.angVel?h.angVel.clone().clampLength(0,10):V();
@@ -157,6 +158,15 @@ function dropHeld(h,silent){
   if(it.kinematic){it.kinematic=false;it.body.type=CANNON.Body.DYNAMIC;it.body.updateMassProperties();}
   if(!silent){it.body.velocity.set(v.x,v.y,v.z);it.body.angularVelocity.set(w.x,w.y,w.z);}
   it.body.wakeUp();
+}
+export function releaseHand(h){
+  if(!h)return;const it=h.held;dropHeld(h,true);if(it)S.fn.onRelease?.(it,h);
+  S.fn.onHandRelease?.(h);
+  if(h.hover)setHi(h.hover,false);
+  if(h.p2p){world.removeConstraint(h.p2p);h.p2p=null;}
+  if(h.kin&&h.kin.world)world.removeBody(h.kin);
+  Object.assign(h,{held:null,second:false,tw:null,offset:null,hover:null,kin:null,crank:false,lid:false,pinch:false,grabBtn:null,
+    fingerLine:false,prevSq:false,prevTr:false,prevQ:null,angVel:null,hist:[],prev:{a:false,b:false,x:false},bHeld:0});
 }
 function localBox(obj){
   obj.updateMatrixWorld(true);const inv=obj.matrixWorld.clone().invert(),b=new THREE.Box3(),m=new THREE.Matrix4();
@@ -171,7 +181,7 @@ function nearestFor(h){
       if(!it.lbox)it.lbox=localBox(it.obj);
       const d=it.lbox.distanceToPoint(it.obj.worldToLocal(hp.clone()));
       if(d<.06&&d*.8<bd){bd=d*.8;best=it;}continue;}
-    const box=new THREE.Box3().setFromObject(it.obj);if(box.isEmpty())continue;box.expandByScalar(.035);
+    const box=it.vobj.worldBounds();if(box.isEmpty())continue;box.expandByScalar(.035);
     if(box.containsPoint(hp)){const d=box.getCenter(_v2).distanceTo(hp)*.5+(it.vobj.kind==='organ'?-.05:0);if(d<bd){bd=d;best=it;}}
   }
   // organs inside an opened fish
@@ -184,7 +194,7 @@ export function updateHand(h,dt,gp){
   h.hist=h.hist||[];h.hist.push({t:now,p:hp.clone()});while(h.hist.length>5)h.hist.shift();
   const q=h.grip.getWorldQuaternion(new THREE.Quaternion());if(h.prevQ){const dq=q.clone().multiply(h.prevQ.clone().invert());const ang=2*Math.acos(clamp(dq.w,-1,1));const ax=V(dq.x,dq.y,dq.z);if(ax.lengthSq()>1e-8)ax.normalize();h.angVel=ax.multiplyScalar((ang>Math.PI?ang-2*Math.PI:ang)/Math.max(dt,1e-3));}h.prevQ=q;
   const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed),tr=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6);
-  if(h.crank||h.lid){h.prevSq=sq;h.prevTr=tr;return;}            // the reel owns this hand while cranking
+  if(h.crank||h.lid||h.heldLure||S.fn.lureHeldBy?.(h)){h.prevSq=sq;h.prevTr=tr;return;}            // the reel owns this hand while cranking
   const grabEdge=!h.held&&((sq&&!h.prevSq)?'sq':(tr&&!h.prevTr)?'tr':null);
   if(!h.held){
     const n=nearestFor(h);const cand=n&&n.type!=='organIn'?n:null;
@@ -192,6 +202,7 @@ export function updateHand(h,dt,gp){
     if(grabEdge){h.grabBtn=grabEdge;h.pinch=grabEdge==='tr';}
     if(grabEdge&&!S.fn.handGrabSpecial?.(h)){
       if(n&&n.type==='organIn'){const it=releaseOrgan(n.fish,n.org,false);if(it){sfx.squelch();grabPiece(h,it);}}
+      else if(n&&n.type==='tool'&&h.pinch){msg('Инструмент — всей рукой','Возьмите боковой кнопкой',1.2);}
       else if(n&&n.type==='tool'&&n.heldBy&&n.heldBy!==h&&!n.follow){
         // a second hand on a tool: the tool turns around the first hand toward the second one
         const g1=n.heldBy.grip;h.held=n;h.second=true;h.tw={a:g1.worldToLocal(h.grip.getWorldPosition(V())),q0:n.obj.quaternion.clone(),p0:n.obj.position.clone()};
@@ -263,7 +274,7 @@ export function collect(dt){
     if(Math.hypot(p.x-BUCKET.position.x,p.z-BUCKET.position.z)<.17&&p.y<.5){toBucket(it);continue;}
     if(p.y<-.3||Math.abs(p.z)>3||p.x<-5||p.x>6){
       const w=it.obj.getWorldPosition(V());splash(w,10,2.5,.8);sfx.splash(.6);
-      if(it.body.mass<.05||it.vobj.kind==='organ'){removeItem(it);boat.remove(it.obj);continue;}
+      if(it.body.mass<.05||it.vobj.kind==='organ'){removeItem(it);it.obj.removeFromParent();it.vobj.dispose();continue;}
       // forgiving: the sea throws it back on deck
       it.body.position.set(DECK_SPOT.x+rand(-.3,.3),.35,DECK_SPOT.z+rand(-.25,.25));it.body.velocity.setZero();it.body.angularVelocity.setZero();it.body.wakeUp();
       msg('Волной вернуло на палубу','',1.2);
@@ -352,4 +363,3 @@ function tryFinish(it,st,final,opts){
 /* the desktop knife: one straight sweep, finished at once */
 export function knifeSweep(edgePrev,edgeNow,opts={}){const r=cutStep(edgePrev,edgeNow,{...opts,oneShot:true});cutFrame(true);return r;}
 export function markCut(it){it.vobj.cut=true;it.vobj.flushMeshes();S.cutSound=1;}
-export function processSplits(){}

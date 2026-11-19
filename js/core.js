@@ -354,7 +354,15 @@ export function fly(obj,toParent,toLocal,o={}){
   anims.push({obj,toParent,toLocal:toLocal.clone(),from:obj.position.clone(),t:0,dur:o.dur||.7,arc:o.arc??.4,spin:o.spin||0,
     s0:obj.scale.x,s1:o.scale??obj.scale.x,endQ:o.endQ||null,keepQ:o.keepQ,onDone:o.onDone,keepParent:o.keepParent});
 }
-export function clearAnims(){anims.length=0;}
+export function disposeObject(obj){
+  obj.removeFromParent();
+  if(obj.userData.vobj){obj.userData.vobj.dispose();return;}
+  const geos=new Set(),mats=new Set(),textures=new Set();
+  obj.traverse(o=>{if(o.geometry)geos.add(o.geometry);for(const m of (Array.isArray(o.material)?o.material:o.material?[o.material]:[]))mats.add(m);});
+  for(const m of mats){for(const v of Object.values(m))if(v&&v.isTexture)textures.add(v);m.dispose();}
+  for(const g of geos)g.dispose();for(const t of textures)t.dispose();
+}
+export function clearAnims(){for(const a of anims)disposeObject(a.obj);anims.length=0;}
 const _va=V();
 export function updateAnims(dt){
   for(let i=anims.length-1;i>=0;i--){const a=anims[i];a.t+=dt;const u=clamp(a.t/a.dur,0,1),e=u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;

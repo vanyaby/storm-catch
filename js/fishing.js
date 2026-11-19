@@ -1,12 +1,11 @@
 /* Fishing, physical: a springy rod with inertia, a rope-like line, bail + finger casting,
    a reel that loads up under strain, and a hooked fish that is a body moving in the water. */
 import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, pick, damp, save, persist, lineStrength, reelMult, scene, rig, camera, renderer, boat,
-  RAIL, DECK_SPOT, HOLSTER, SPECIES, LU, LURES, lureModel, tackleSlots, hotspot, wind, waveH, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
+  RAIL, DECK_SPOT, HOLSTER, SPECIES, LU, LURES, lureModel, tackleSlots, hotspot, wind, waveH, Mat, sfx, msg, label, fmtKg, splash, fly, disposeObject } from './core.js';
 import { CANNON, world } from './physics.js';
-import { items, registerTool, toHolster, HANDS, mainHand, offHand, addPiece, removeItem, handMatrixBoat, grabPiece, snapToHand } from './interact.js';
+import { items, registerTool, toHolster, HANDS, offHand, addPiece, removeItem, handMatrixBoat, grabPiece, snapToHand, releaseHand } from './interact.js';
 import { newFish, buildFish } from './fishbody.js';
 import { hapPulse, hapCont, hapBoth } from './haptics.js';
-import { buildHand, setCurls, POSES } from './hands.js';
 
 export const F={state:'ready',lure:V(),lureVel:V(),depth:0,charge:0,bite:null,fish:null,tension:0,drag:.65,slackT:0,breakT:0,landT:0,
   reel:0,twitchV:0,act:0,biteCheck:1,waterT:0,slipAcc:0,clickAcc:0,swim:null,lureId:'spoon',hasLure:true,
@@ -31,7 +30,6 @@ function buildRod(){
   const crank=new THREE.Group();crank.position.set(-.038,-.015,-.005);reel.add(crank);
   const carm=new THREE.Mesh(new THREE.BoxGeometry(.006,.006,.07),metal);carm.position.z=-.035;crank.add(carm);
   const knob=new THREE.Mesh(new THREE.CylinderGeometry(.011,.011,.03,6),knobMat);knob.rotation.z=Math.PI/2;knob.position.set(-.016,0,-.07);crank.add(knob);
-  const khm=buildHand();setCurls(khm,POSES.crank);const knobHand=khm.root;knobHand.visible=false;knobHand.rotation.x=-Math.PI/2;knobHand.scale.setScalar(.95);reel.add(knobHand);
   const segs=[];let parent=root;const N=6,SL=.36;
   for(let i=0;i<N;i++){const g=new THREE.Group();g.position.y=i===0?.46:SL;parent.add(g);
     const r0=.0105*(1-i/N)+.0024,r1=.0105*(1-(i+1)/N)+.0024;const m=new THREE.Mesh(new THREE.CylinderGeometry(r1,r0,SL,6),blank);m.position.y=SL/2;g.add(m);
@@ -39,10 +37,10 @@ function buildRod(){
   const tip=new THREE.Object3D();tip.position.y=SL;parent.add(tip);
   const rc=document.createElement('canvas');rc.width=256;rc.height=160;const rt=new THREE.CanvasTexture(rc);rt.colorSpace=THREE.SRGBColorSpace;
   const disp=new THREE.Mesh(new THREE.PlaneGeometry(.075,.047),new THREE.MeshBasicMaterial({map:rt,transparent:true}));disp.position.set(.05,-.005,-.012);disp.rotation.set(0,Math.PI/2,0);disp.rotateX(-.6);reel.add(disp);
-  return {root,segs,tip,crank,knob,knobHand,ring,reel,bail,spool,dragKnob,disp,rc,rt};
+  return {root,segs,tip,crank,knob,ring,reel,bail,spool,dragKnob,disp,rc,rt};
 }
 export const rod=buildRod();
-export function setCrankSide(){const s=save.rodHand==='right'?-1:1;rod.disp.position.x=-.05*s;rod.disp.rotation.set(0,-s*Math.PI/2,0);rod.disp.rotateX(-.6);rod.crank.position.x=.038*s;rod.knob.position.x=.016*s;rod.knobSide=s;rod.knobHand.scale.x=-.95*s;}
+export function setCrankSide(){const s=save.rodHand==='right'?-1:1;rod.disp.position.x=-.05*s;rod.disp.rotation.set(0,-s*Math.PI/2,0);rod.disp.rotateX(-.6);rod.crank.position.x=.038*s;rod.knob.position.x=.016*s;rod.knobSide=s;}
 setCrankSide();
 export const rodItem=registerTool('rod',rod.root,b=>b.addShape(new CANNON.Box(new CANNON.Vec3(.025,1.25,.025)),new CANNON.Vec3(0,1.25,0)),.6,HOLSTER.rod,
   V(0,-.02,.16),new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI/2+.55,0,0)));
@@ -70,7 +68,7 @@ const lineGeo=new THREE.BufferGeometry();lineGeo.setAttribute('position',new THR
 const fishLine=new THREE.Line(lineGeo,new THREE.LineBasicMaterial({color:0xf3efe2,transparent:true,opacity:.85}));fishLine.frustumCulled=false;scene.add(fishLine);
 const lure=new THREE.Group();scene.add(lure);let lureMesh=null;
 const clip=new THREE.Mesh(new THREE.TorusGeometry(.012,.0028,5,10),Mat(0xb9bdc1,{metalness:.8,roughness:.3}));clip.visible=false;scene.add(clip);
-export function setLureModel(id){if(lureMesh)lure.remove(lureMesh);lureMesh=id?lureModel(LU[id]):null;if(lureMesh){lureMesh.position.y=-.03;lure.add(lureMesh);}}
+export function setLureModel(id){if(lureMesh)disposeObject(lureMesh);lureMesh=id?lureModel(LU[id]):null;if(lureMesh){lureMesh.position.y=-.03;lure.add(lureMesh);}}
 setLureModel(F.lureId);
 /* under the surface: a fish rising to the boat shows as a dark shape; the line and the lure leave rings on the water */
 const shadow=new THREE.Mesh(new THREE.CircleGeometry(1,20),new THREE.MeshBasicMaterial({color:0x061418,transparent:true,opacity:0,depthWrite:false}));shadow.rotation.x=-Math.PI/2;shadow.visible=false;shadow.renderOrder=3;scene.add(shadow);
@@ -231,7 +229,7 @@ function updateFight(dt){
     F.tension=.2+.12*Math.abs(Math.sin(f.t*9));
     if(Math.random()<dt*4){splash(f.pos,6,2.2,.8);if(Math.random()<.3)sfx.splash(.4);bend.kick(rand(-.3,.3));}
     if(F.landT>14){f.stamina=Math.min(1,f.stamina+.22);F.state='hooked';f.mode='run';f.modeT=2;msg('Ушла вглубь','Вымотайте её ещё раз',1.6);}
-    return;
+    fishHaptics(dt,f);return;
   }
   f.modeT-=dt;
   if(f.modeT<=0){const tired=f.stamina<.3;let m=(tired&&Math.random()<.6)?'rest':pick(sp.modes);if(m==='jump'&&f.pos.y<surf-2.5)m='run';
@@ -270,7 +268,7 @@ function updateFight(dt){
   if(F.slackT>((f.air||f.mode==='shake')?1.0:2.4)){loseFish('Сошла','Леска провисла. Подматывайте, когда рыба идёт к вам');return;}
   if(F.line>150){sfx.snap();loseFish('Катушка пуста','Рыба смотала всю леску. Затяните фрикцион',true);return;}
   // tiring: pulling against the way it swims wears it out faster (lead it with the rod)
-  const against=Math.max(0,-fishSwimDir(f,_aw,perp).dot(toTip.clone().negate()));
+  const against=Math.max(0,-fishSwimDir(f,_aw,perp).dot(toTip));
   f.stamina=Math.max(0,f.stamina-dt/(sp.stam*1.6)*(.2+F.tension*1.2+against*F.tension*.8));
   if(hd<4.2&&!f.air){
     if(f.stamina<.35){F.state='landing';F.landT=0;
@@ -319,16 +317,17 @@ function crankHandAngle(hp){const l=rod.crank.parent.worldToLocal(hp.clone()).su
 S.fn.handGrabSpecial=h=>{
   const hp=h.grip.getWorldPosition(V());const rh=rodHand();
   if(F.state==='landing'&&F.fish&&h!==rh&&hp.distanceTo(F.fish.pos)<.5){
+    if(h.pinch&&F.fish.kg>1.5){msg('Пальцами не удержать','Возьмите всей рукой — боковой кнопкой',1.4);return true;}
     if(F.fish.kg<=6){const {ob}=takeFishOut();boat.add(ob.g);ob.g.position.copy(boat.worldToLocal(hp.clone()));ob.g.quaternion.setFromEuler(new THREE.Euler(0,Math.PI/2,0));const it=addPiece(ob);snapToHand(it,hp);grabPiece(h,it);msg('Рыба в руке','Несите на стол',1.2);S.fn.tut?.('unhooked');return true;}
     else{msg('Слишком тяжёлая','Подведите подсак под рыбу',1.4);return true;}}
-  if(F.dangle&&h!==rh){const it=F.dangle.it;const fp=it.obj.localToWorld(it.com.clone());if(hp.distanceTo(fp)<.5){snapToHand(it,hp);grabPiece(h,it);return true;}}
+  if(F.dangle&&h!==rh){const it=F.dangle.it;const fp=it.obj.localToWorld(it.com.clone());if(hp.distanceTo(fp)<.5){if(h.pinch&&it.body.mass>1.5){msg('Пальцами не удержать','Возьмите всей рукой — боковой кнопкой',1.4);return true;}snapToHand(it,hp);grabPiece(h,it);return true;}}
   if(rh&&rh!==h&&save.reelMode==='hand'&&hp.distanceTo(rod.knob.getWorldPosition(V()))<.15){
     crank.held=true;crank.hand=h;h.crank=true;crank.prevA=crankHandAngle(hp);crank.prevQ=h.grip.getWorldQuaternion(new THREE.Quaternion());
     crank.prevA=crankHandAngle(pinchPoint(h));crank.vis=crank.prevA;crank.off=crank.angle-crank.prevA;hapPulse(h,.3,30);S.fn.tut?.('crank');return true;}
-  if(F.netted&&!(netItem.heldBy===h)){const b=new THREE.Box3().setFromObject(F.netted.ob.g).expandByScalar(.06);if(b.containsPoint(hp)){const it=releaseNetted();if(it){grabPiece(h,it);return true;}}}
+  if(F.netted&&!(netItem.heldBy===h)){const b=new THREE.Box3().setFromObject(F.netted.ob.g).expandByScalar(.06);if(b.containsPoint(hp)){if(h.pinch&&F.netted.ob.fish.kg>1.5){msg('Пальцами не удержать','Возьмите всей рукой — боковой кнопкой',1.4);return true;}const it=releaseNetted();if(it){grabPiece(h,it);return true;}}}
   if(F.state==='ready'){
     const end=rope.p[ROPE_N-1];
-    if(F.hasLure&&hp.distanceTo(end)<.13){F.lureHold=h;hapPulse(h,.35,30);sfx.pick();msg('Держите приманку','Курком отстегните её от карабина',1.6);S.fn.tut?.('lurehold');return true;}
+    if(F.hasLure&&!F.lureHold&&hp.distanceTo(end)<.13){F.lureHold=h;h.lureHold=true;h.lureAnchor=hp.clone();h.lureTrigPrev=h.grabBtn==='tr';hapPulse(h,.35,30);sfx.pick();msg('Держите приманку',h.grabBtn==='tr'?'Потяните щепотью от карабина':'Курком отстегните её от карабина',1.6);S.fn.tut?.('lurehold');return true;}
     for(const t of tackleSlots){if(hp.distanceTo(t.slot.getWorldPosition(V()))<.07){takeLure(h,t.lure.id);return true;}}
   }
   return false;
@@ -341,8 +340,8 @@ S.fn.onToolGrab=(it,h)=>{if(it===rodItem)S.fn.tut?.('rod');if(it===netItem)S.fn.
 S.fn.onRelease=(it,h)=>{if(it===netItem&&F.netted)releaseNetted();};
 function updateCrank(dt){
   const h=crank.hand;if(!crank.held||!h)return;
-  const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed)||(h.grabBtn==='tr'&&!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.5));const hp=h.grip.getWorldPosition(V());
-  if(!sq||!rodHand()||hp.distanceTo(rod.knob.getWorldPosition(V()))>.3){crank.held=false;h.crank=false;h.prevSq=sq;return;}
+  const gp=h.src&&h.src.gamepad;const sq=grabDown(h,gp);const hp=h.grip.getWorldPosition(V());
+  if(!sq||!rodHand()||hp.distanceTo(rod.knob.getWorldPosition(V()))>.3){releaseCrank();return;}
   const a=crankHandAngle(pinchPoint(h));let da=a-crank.prevA;if(da>Math.PI)da-=TAU;if(da<-Math.PI)da+=TAU;crank.prevA=a;
   let d=da;
   crank.off=(crank.off||0)*Math.exp(-6*dt);                     // the knob slides onto the fingers, then sticks to them
@@ -351,23 +350,29 @@ function updateCrank(dt){
   if(F.bail==='open'&&Math.abs(d)>.05){setBail(false);if(F.state==='water'||F.state==='flying')msg('Дужка закрыта','',.8);}
   // under strain the handle gets heavy; when the drag is slipping it barely moves
   const fight=F.state==='hooked'||F.state==='landing';const load=fight?clamp(F.tension/F.drag,0,1):0;
-  const who=h===mainHand()?'main':'off';
   d*=1-.7*load;crank.angle=crank.vis+crank.off;crank.rate=damp(crank.rate,Math.abs(d)/Math.max(dt,1e-3),10,dt);crank.acc+=Math.abs(d);
   if(crank.acc>Math.PI/4){crank.acc=0;sfx.click(.07+load*.08);hapPulse(h,.15+load*.45,10+load*25);}
   if(fight&&load>.97&&Math.random()<dt*20)hapPulse(h,.6,15);
 }
+function grabDown(h,gp){return h.grabBtn==='tr'?!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6):!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);}
+function releaseCrank(){if(crank.hand)crank.hand.crank=false;Object.assign(crank,{held:false,hand:null,prevA:0,prevQ:null,rate:0,acc:0});}
+function releaseLure(h){const m=h.grip.getObjectByName('heldLure');if(m)disposeObject(m);h.heldLure=null;h.lureFree=false;h.lureTrigPrev=false;h.lureHold=false;h.lureAnchor=null;if(F.lureHold===h)F.lureHold=null;}
+S.fn.lureHeldBy=h=>F.lureHold===h;
+S.fn.onHandRelease=h=>{if(crank.hand===h||!rodHand())releaseCrank();releaseLure(h);};
 function takeLure(h,id){h.lureFree=true;const m=lureModel(LU[id]);m.name='heldLure';h.grip.add(m);m.position.set(0,-.02,-.05);h.heldLure=id;sfx.pick();hapPulse(h,.3,25);}
+// Pinching the clipped lure and pulling it away opens the carabiner.
+function hpAway(h){return h.lureAnchor&&h.grip.getWorldPosition(V()).distanceTo(h.lureAnchor)>.16;}
 function updateHeldLures(){
   // a lure held on the line: trigger = unclip (click), letting go = it hangs again
-  if(F.lureHold){const h=F.lureHold;const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const trig=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6);
-    if(!sq||F.state!=='ready'){F.lureHold=null;}
-    else if(trig&&!h.lureTrigPrev){F.hasLure=false;const id=F.lureId;setLureModel(null);F.lureHold=null;takeLure(h,id);h.lureFree=false;sfx.tie();hapPulse(h,.7,45);msg('Приманка отстёгнута','Поднесите любую к карабину, чтобы пристегнуть',1.8);}
+  if(F.lureHold){const h=F.lureHold;const gp=h.src&&h.src.gamepad;const trig=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6);
+    if(!grabDown(h,gp)||F.state!=='ready'){F.lureHold=null;h.lureHold=false;h.lureAnchor=null;}
+    else if((trig&&!h.lureTrigPrev)||(h.grabBtn==='tr'&&hpAway(h))){F.hasLure=false;const id=F.lureId;setLureModel(null);F.lureHold=null;h.lureHold=false;h.lureAnchor=null;takeLure(h,id);h.lureFree=false;sfx.tie();hapPulse(h,.7,45);msg('Приманка отстёгнута','Поднесите любую к карабину, чтобы пристегнуть',1.8);}
     h.lureTrigPrev=trig;}
-  for(const h of Object.values(HANDS)){if(!h||!h.heldLure)continue;const gp=h.src&&h.src.gamepad;const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed);const hp=h.grip.getWorldPosition(V());
+  for(const h of Object.values(HANDS)){if(!h||!h.heldLure)continue;const gp=h.src&&h.src.gamepad;const hp=h.grip.getWorldPosition(V());
     const sp=rope.p[ROPE_N-1];
     if(hp.distanceTo(sp)>.16)h.lureFree=true;      // must be carried away from the carabiner before it can clip back
-    if(F.state==='ready'&&!F.hasLure&&h.lureFree&&hp.distanceTo(sp)<.09){tieLure(h.heldLure);S.fn.tut?.('lureswap');hapPulse(h,.7,40);const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;continue;}
-    if(!sq){const m=h.grip.getObjectByName('heldLure');if(m)h.grip.remove(m);h.heldLure=null;}}
+    if(F.state==='ready'&&!F.hasLure&&h.lureFree&&hp.distanceTo(sp)<.09){tieLure(h.heldLure);S.fn.tut?.('lureswap');hapPulse(h,.7,40);releaseLure(h);continue;}
+    if(!grabDown(h,gp))releaseLure(h);}
 }
 
 /* ---------- cast assist ---------- */
@@ -417,7 +422,7 @@ function updateBend(dt){
 /* ---------- rope ---------- */
 function lineTarget(out){
   if(F.state==='flying'||F.state==='water')return out.copy(F.lure);
-  if((F.state==='hooked'||F.state==='landing')&&F.fish){out.copy(F.fish.pos);if(F.swim&&F.swim.holder.visible)out.copy(F.swim.holder.position);return out;}
+  if((F.state==='hooked'||F.state==='landing')&&F.fish)return out.copy(F.fish.pos);
   if(F.dangle)return F.dangle.it.obj.localToWorld(V(F.dangle.it.vobj.fish.d.L*.45,0,0));
   return snapPoint(out);
 }
@@ -459,7 +464,7 @@ export function fishingVR(dt){
   if(rh){
     const gp=rh.src&&rh.src.gamepad;const trig=!!(gp&&gp.buttons[4]&&gp.buttons[4].pressed);   // A or X on the rod hand: the finger holds the line
     if(save.reelMode==='hand')F.reel=crank.held&&F.bail==='closed'?clamp(crank.rate/(TAU*1.5),0,1.2):0;
-    else{const o=offHand();const og=o&&o.src&&o.src.gamepad;F.reel=og&&og.buttons[0]?og.buttons[0].value:0;if(F.reel>.1&&F.bail==='open')setBail(false);}
+    else{const o=freeHand();const og=o&&o.src&&o.src.gamepad;F.reel=o&&!o.held&&!o.lid&&!o.heldLure&&!o.lureHold&&!o.crank&&og&&og.buttons[0]?og.buttons[0].value:0;if(F.reel>.1&&F.bail==='open')setBail(false);}
     // A or X held: the line runs free off the spool (to let the lure down or pull it to you to change it)
     const free=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.5)&&F.state!=='wind';   // trigger on the rod hand: the line runs off the spool
     if(F.state==='ready'){
@@ -557,15 +562,15 @@ export function updateFishing(dt){
       break;}
     case 'water':{F.waterT+=dt;const L=LU[F.lureId];const dx=r.x-F.lure.x,dz=r.z-F.lure.z,dist=Math.hypot(dx,dz);
       const reeling=F.reel>.05&&F.bail==='closed';const maxD=Math.min(L.maxD,F.bottom);
-      if(reeling){const spd=(F.bite?1.2:3.4)*F.reel*reelMult();F.lure.x+=dx/dist*spd*dt;F.lure.z+=dz/dist*spd*dt;
-        if(L.sink<0)F.depth=Math.min(L.maxD,F.depth+1.6*F.reel*dt);else F.depth=Math.max(0,F.depth-F.reel*(L.hop?2.4:1.6)*dt);
+      if(reeling){const spd=(F.bite?1.2:3.4)*F.reel*reelMult();const step=Math.min(dist,spd*dt)/Math.max(dist,1e-6);F.lure.x+=dx*step;F.lure.z+=dz*step;
+        if(L.sink<0&&dist>=1.7)F.depth=Math.min(L.maxD,F.depth+1.6*F.reel*dt);else F.depth=Math.max(0,F.depth-F.reel*(L.hop?2.4:1.6)*dt);
         F.clickAcc+=spd*dt;if(F.clickAcc>.3&&!crank.held){F.clickAcc=0;sfx.click(.07);}}
       else{if(L.sink<0)F.depth=Math.max(0,F.depth+L.sink*dt);else F.depth=Math.min(maxD,F.depth+L.sink*dt);}
       lurePlay(dt,L,reeling,maxD);
-      F.lure.addScaledVector(wind,S.storm*.35*dt);F.lure.y=waveH(F.lure.x,F.lure.z);
+      F.lure.addScaledVector(wind,S.storm*.35*dt);F.lure.y=waveH(F.lure.x,F.lure.z)-F.depth;
       F.line=tipW(V()).distanceTo(F.lure)+(F.bail==='open'?1.5+F.depth*.3:reeling?0:.4+F.depth*.15);
       // brought up to the boat: it climbs out of the water and hangs under the rod tip, no jump
-      if(dist<1.7&&reeling&&!F.bite){F.state='ready';F.depth=0;F.line=Math.max(.5,tipW(V()).distanceTo(F.lure));F.lureVel.set(0,0,0);break;}
+      if(dist<1.7&&F.depth<.35&&reeling&&!F.bite){F.state='ready';F.depth=0;F.line=Math.max(.5,tipW(V()).distanceTo(F.lure));F.lureVel.set(0,0,0);break;}
       if(F.bite)updateBite(dt);else{biteLoad=0;F.biteCheck-=dt;if(F.biteCheck<=0&&F.waterT>1.5){F.biteCheck=.5;startBite();}}
       break;}
     case 'ready':if(F.reel>.05&&F.bail==='closed'&&F.line>.4&&!F.lureHold){F.line=Math.max(.4,F.line-F.reel*2.4*reelMult()*dt);F.clickAcc+=F.reel*dt*2;if(F.clickAcc>.3&&!crank.held){F.clickAcc=0;sfx.click(.07);}}break;
@@ -573,7 +578,6 @@ export function updateFishing(dt){
   }
   if(F.swim&&F.fish){
     const f=F.fish,h=F.swim.holder;h.visible=F.state==='landing'||f.air||F.depth<3.2;h.position.copy(f.pos);
-    if(!f.air&&F.state!=='landing')h.position.y=Math.max(h.position.y,waveH(f.pos.x,f.pos.z)-.25);
     const v=f.vel;const sp=Math.hypot(v.x,v.z);const yaw=sp>.2?Math.atan2(-v.z,v.x):h.rotation.y;
     h.rotation.y=yaw+Math.sin(f.t*(F.state==='landing'?18:10))*(F.state==='landing'?.25:.06);F.swim.ob.setSwim(f.air?.25:F.state==='landing'?1.4:clamp(.35+sp*.35,.35,1.3));h.rotation.z=f.air?clamp(v.y*.15,-.9,.9):0;
   }
@@ -604,9 +608,6 @@ const ringCol=new THREE.Color();
 export function updateRodLine(dt){
   updateBend(dt);updateRope(dt);drawReelDisplay(dt);
   if(!crank.held)crank.angle-=F.reel*dt*14;rod.crank.rotation.x=crank.angle;
-  if(rod.knobHand.visible){ // fingers pinch the knob; the hand keeps its own orientation while the arm turns
-    rod.crank.updateMatrix();_v1.copy(rod.knob.position).applyMatrix4(rod.crank.matrix);
-    rod.knobHand.position.set(_v1.x+.016*(rod.knobSide||-1),_v1.y+.05,_v1.z);}
   if(F.state==='hooked'&&F.slipAcc>0)rod.spool.rotation.y+=dt*12*clamp(F.tension/F.drag,0,1);
   rod.bail.rotation.y=damp(rod.bail.rotation.y,F.bail==='open'?2.6:0,18,dt);
   const end=rope.p[ROPE_N-1];
@@ -626,11 +627,22 @@ export function updateRodLine(dt){
   if(rodHand()&&save.reelMode==='hand'&&!crank.held){const o=Object.values(HANDS).find(h=>h&&h!==rodHand());if(o&&o.grip.getWorldPosition(V()).distanceTo(rod.knob.getWorldPosition(V()))<.15)knobMat.emissive.setHex(0x664018);}
 }
 export function forceHook(sp,len){F.state='water';F.lure.set(0,0,-10);F.bail='closed';F.bite={sp,sizeT:.5,len,kg:Math.round(sp.k*len**3*100)/100};hookFish(false);}
+export function endFishingVR(){
+  for(const h of Object.values(HANDS))releaseHand(h);releaseCrank();F.reel=0;F.lineFree=false;trigPrev=false;
+  if(F.dangle){world.removeConstraint(F.dangle.c);world.removeBody(F.dangle.kin);F.dangle=null;F.line=.4;}
+  if(F.netted)releaseNetted();
+  if(F.state==='wind'){F.state='ready';F.releasing=null;F.castBuf.length=0;F.bail='closed';}
+  arc.visible=false;ringMark.visible=false;rope.ok=false;rope.endS=null;
+}
 export function resetFishing(){
-  Object.assign(F,{state:'ready',bite:null,fish:null,tension:0,depth:0,line:.4,bail:'closed',feather:false});biteLoad=0;rope.ok=false;
+  for(const h of Object.values(HANDS))releaseHand(h);releaseCrank();
+  Object.assign(F,{state:'ready',bite:null,fish:null,tension:0,depth:0,line:.4,bail:'closed',feather:false,lineFree:false,reel:0,
+    lureHold:null,releasing:null,castBuf:[],slackT:0,breakT:0,landT:0,slipAcc:0,clickAcc:0,act:0,charge:0,waterT:0,
+    biteCheck:1.2,pres:.3,pauseT:0,pauseBonus:0,hops:0,hopT:99,bottomHit:false,wobT:0,heavyWarn:false});
+  biteLoad=0;rope.ok=false;rope.endS=null;trigPrev=false;vrFlickCd=0;tipVelS.set(0,0,0);tipPrev.copy(tipW(V()));bend.prevMid=null;bend.prevVel.set(0,0,0);bend.b.set(0,0,0);bend.v.set(0,0,0);
   if(!F.hasLure){F.hasLure=true;setLureModel(F.lureId);}
-  if(F.swim){scene.remove(F.swim.holder);F.swim=null;}
+  if(F.swim){disposeObject(F.swim.ob.g);F.swim.holder.removeFromParent();F.swim=null;}
   if(F.dangle){world.removeConstraint(F.dangle.c);world.removeBody(F.dangle.kin);F.dangle=null;}
-  if(F.netted){net.content.remove(F.netted.ob.g);F.netted=null;}
+  if(F.netted){disposeObject(F.netted.ob.g);F.netted=null;}
   arc.visible=false;ringMark.visible=false;
 }
