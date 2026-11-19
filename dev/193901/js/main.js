@@ -267,7 +267,7 @@ function vrKnife(dt){
     KN.kb.addShape(new CANNON.Box(new CANNON.Vec3(.004,.015,.1)),new CANNON.Vec3(0,-.005,-.12));KN.kb.addShape(new CANNON.Box(new CANNON.Vec3(.011,.012,.06)),new CANNON.Vec3(0,0,.07));}
   if(!KN.kb.world){world.addBody(KN.kb);KN.kb.position.set(KN.pos.x,KN.pos.y,KN.pos.z);}
   {const kb=KN.kb,k=1/Math.max(dt,1e-3);kb.velocity.set((KN.pos.x-kb.position.x)*k,(KN.pos.y-kb.position.y)*k,(KN.pos.z-kb.position.z)*k);
-   kb.position.set(KN.pos.x,KN.pos.y,KN.pos.z);kb.quaternion.set(_kq.x,_kq.y,_kq.z,_kq.w);kb.collisionResponse=(state==='free'||state==='body')&&!removedTotal;   // only the free blade or its flat pushes pieces; an edge pressed into the fish does not shove it}
+   kb.position.set(KN.pos.x,KN.pos.y,KN.pos.z);kb.quaternion.set(_kq.x,_kq.y,_kq.z,_kq.w);kb.collisionResponse=(state==='free'||state==='body')&&!removedTotal;}   /* only the free blade or its flat pushes pieces; an edge pressed into the fish does not shove it */
   // sharpening: the blade drawn over the stone
   const midW=knife.localToWorld(V(0,-.02,-.12));const sl=boat.worldToLocal(midW.clone());
   if(Math.abs(sl.x-STONE.x)<.05&&Math.abs(sl.z-STONE.z)<.11&&Math.abs(sl.y-STONE.y)<.035&&handSp>.15){
