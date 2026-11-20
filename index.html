@@ -145,10 +145,10 @@ td.num,th.num{text-align:right}
     <div class="controls">
       <div><b>Взять что угодно.</b> Поднесите руку — появится табличка. Инструменты — только боковой кнопкой. Курок — щепоть для приманок, кусков, потрохов и ручки катушки. Тяжёлую рыбу одной рукой можно волочить, двумя — поднять.</div>
       <div><b>Удочка</b> в держателе у борта, <b>подсак</b> на крюке рядом, <b>нож</b> и <b>чешуечистка</b> у края стола, <b>приманки</b> в ящике слева.</div>
-      <div><b>Заброс.</b> Зажмите A/X рукой с удочкой и отпустите на взмахе. Для ловли в отвес вынесите вершинку за борт и удерживайте курок, пока приманка опускается. Отпустите курок, чтобы закрыть дужку. Подмотайте слабину, чтобы почувствовать дно и поклёвку.</div>
+      <div><b>Заброс.</b> Зажмите A/X на руке с удочкой, щёлкните стиком этой руки, чтобы открыть дужку. Сделайте замах и отпустите A/X на движении вперёд. Снова прижмите A/X, чтобы остановить сход лески. Подмотка закрывает дужку.</div>
       <div><b>Катушка.</b> Свободной рукой возьмитесь за ручку и крутите кистью. Кольцо на катушке: зелёное — тяните, красное — ослабьте фрикцион правым стиком.</div>
       <div><b>Нож.</b> Режьте светлой нижней кромкой. Чтобы снять филе, ведите нож вдоль хребта. Приподнимите надрезанный край щепотью и дорежьте перемычку. Для стейка сделайте два поперечных реза, проходя хребет ударом или пилением. Органы можно достать и разрезать. Берегите жёлчный пузырь, желудок и кишечник. Плашмя нож снимает кожу, чешуечистка снимает чешую. Точило лежит на столе.</div>
-      <div><b>Ходьба:</b> левый стик (плавно или телепорт). <b>Поворот:</b> правый стик. <b>A/X</b> с удочкой — палец на леске (заброс), <b>курок</b> — распустить леску. Улов сами кладите в ящик со льдом, открыв крышку. <b>Держать Y/B:</b> домой. В порту наведите луч от контроллера на «Купить» или «Снова в море» и нажмите курок.</div>
+      <div><b>Ходьба:</b> левый стик (плавно или телепорт). <b>Поворот:</b> правый стик. <b>A/X</b> с удочкой — пальцевый тормоз, <b>щелчок стиком</b> этой руки — открыть дужку. Улов сами кладите в ящик со льдом, открыв крышку. <b>Держать Y/B:</b> домой. В порту наведите луч от контроллера на «Купить» или «Снова в море» и нажмите курок.</div>
     </div>
     <details>
       <summary>На компьютере</summary>
@@ -173,14 +173,7 @@ td.num,th.num{text-align:right}
         <button type="button" data-haptic="1.5">Сильная</button>
       </div>
     </div>
-    <div class="row">
-      <span class="lbl">Помощь при забросе</span>
-      <div class="seg" role="group" aria-label="Помощь при забросе">
-        <button type="button" data-cast="0">Нет</button>
-        <button type="button" data-cast="0.5">Слабая</button>
-        <button type="button" data-cast="0.9">Сильная</button>
-      </div>
-    </div>
+
     <div class="row">
       <span class="lbl">Таблички</span>
       <div class="seg" role="group" aria-label="Таблички">
@@ -237,24 +230,24 @@ td.num,th.num{text-align:right}
   "imports": {
     "three": "./vendor/three.module.js",
     "cannon-es": "./vendor/cannon-es.js",
-    "./js/anatomy.js": "./js/anatomy.js?v=atlas-2",
-    "./js/assembly.js": "./js/assembly.js?v=atlas-2",
-    "./js/core.js": "./js/core.js?v=atlas-2",
-    "./js/fillet-lift.js": "./js/fillet-lift.js?v=atlas-2",
-    "./js/fillet.js": "./js/fillet.js?v=atlas-2",
-    "./js/fishbody.js": "./js/fishbody.js?v=atlas-2",
-    "./js/fishing.js": "./js/fishing.js?v=atlas-2",
-    "./js/hands.js": "./js/hands.js?v=atlas-2",
-    "./js/haptics.js": "./js/haptics.js?v=atlas-2",
-    "./js/interact.js": "./js/interact.js?v=atlas-2",
-    "./js/main.js": "./js/main.js?v=atlas-2",
-    "./js/materials.js": "./js/materials.js?v=atlas-2",
-    "./js/organ-profiles.js": "./js/organ-profiles.js?v=atlas-2",
-    "./js/physics.js": "./js/physics.js?v=atlas-2",
-    "./js/schools.js": "./js/schools.js?v=atlas-2",
-    "./js/tablet.js": "./js/tablet.js?v=atlas-2",
-    "./js/tags.js": "./js/tags.js?v=atlas-2",
-    "./js/tissue.js": "./js/tissue.js?v=atlas-2"
+    "./js/anatomy.js": "./js/anatomy.js?v=hand-cast-1",
+    "./js/assembly.js": "./js/assembly.js?v=hand-cast-1",
+    "./js/core.js": "./js/core.js?v=hand-cast-1",
+    "./js/fillet-lift.js": "./js/fillet-lift.js?v=hand-cast-1",
+    "./js/fillet.js": "./js/fillet.js?v=hand-cast-1",
+    "./js/fishbody.js": "./js/fishbody.js?v=hand-cast-1",
+    "./js/fishing.js": "./js/fishing.js?v=hand-cast-1",
+    "./js/hands.js": "./js/hands.js?v=hand-cast-1",
+    "./js/haptics.js": "./js/haptics.js?v=hand-cast-1",
+    "./js/interact.js": "./js/interact.js?v=hand-cast-1",
+    "./js/main.js": "./js/main.js?v=hand-cast-1",
+    "./js/materials.js": "./js/materials.js?v=hand-cast-1",
+    "./js/organ-profiles.js": "./js/organ-profiles.js?v=hand-cast-1",
+    "./js/physics.js": "./js/physics.js?v=hand-cast-1",
+    "./js/schools.js": "./js/schools.js?v=hand-cast-1",
+    "./js/tablet.js": "./js/tablet.js?v=hand-cast-1",
+    "./js/tags.js": "./js/tags.js?v=hand-cast-1",
+    "./js/tissue.js": "./js/tissue.js?v=hand-cast-1"
   }
 }
 </script>

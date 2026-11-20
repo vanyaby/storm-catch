@@ -74,13 +74,29 @@ try{
   function tick(){g.S.T+=dt;g.fishingVR(dt);fish.updateFishing(dt);fish.updateRodLine(dt);}
   for(let i=0;i<20;i++)tick();
   press(right,4,true);tick();
-  expect('Rod-hand A pins the line for casting',g.F.state==='wind'&&g.F.bail==='open');
+  press(right,4,false);tick();
+  expect('Tapping A cannot launch the lure',g.F.state==='ready'&&g.F.bail==='closed');
+  for(let i=0;i<150;i++)tick();
+  press(right,3,true);tick();press(right,3,false);
+  expect('Opening a stationary spool drops lure without a forward launch',
+    g.F.state==='flying'&&Math.hypot(g.F.lureVel.x,g.F.lureVel.z)<.35&&g.F.lureVel.y<0);
+  // Start another cast from the holder's settled line.
+  g.F.state='ready';g.F.line=.4;g.F.bail='closed';
+  for(let i=0;i<60;i++)tick();
+  press(right,4,true);press(right,3,true);tick();press(right,3,false);
+  const pinned=g.F.line;
+  expect('Stick opens bail while A holds the line',g.F.state==='ready'&&g.F.bail==='open');
   for(let i=0;i<12;i++){right.grip.position.z-=.075;right.grip.position.y+=.023;tick();}
   press(right,4,false);
-  for(let i=0;i<20&&g.F.state==='wind';i++)tick();
+  expect('Swing against finger brake preserves length',g.F.line===pinned);tick();
   expect('Releasing during forward swing launches lure',g.F.state==='flying');
   for(let i=0;i<300&&g.F.state==='flying';i++)tick();
   expect('Cast lands beyond boat with line off spool',g.F.state==='water'&&g.F.line>2&&g.F.bail==='open');
+  press(right,4,true);
+  const stopped=g.F.line;
+  for(let i=0;i<24;i++)tick();
+  expect('Finger brake stops underwater payout',g.F.line===stopped);
+  press(right,4,false);tick();
   const {hapFlush}=await import('./js/haptics.js');hapFlush();
   expect('Feedback reaches rod controller',pulses.some(([h,v])=>h==='right'&&v>0));
   press(left,5,true);g.step(48);press(left,5,false);

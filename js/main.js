@@ -72,7 +72,7 @@ let nineWave={warned:false,t:0,hit:false,endT:-1},homeArm=0;
 const TUT=[
   {k:['rod'],t:'Поднесите руку к удочке у борта: появится табличка. Инструменты берутся боковой кнопкой, в том числе второй рукой. Курок берёт щепотью приманки, куски и ручку катушки'},
   {k:['lureswap','cast'],t:'Смена приманки: возьмите приманку боковой кнопкой и курком отстегните (или возьмите щепотью и потяните), поднесите любую из ящика к карабину. Или сразу забрасывайте'},
-  {k:['cast'],t:'Зажмите A/X: палец прижал леску и дужка открылась. Махните и отпустите A/X на взмахе. Курок распускает леску. Жёлтая дуга покажет, куда упадёт приманка'},
+  {k:['cast'],t:'Зажмите A/X на руке с удочкой, щёлкните стиком этой руки, чтобы открыть дужку. Сделайте замах и отпустите A/X на движении вперёд. Снова прижмите A/X, чтобы остановить сход лески. Подмотка закрывает дужку.'},
   {k:['crank'],t:'Возьмитесь свободной рукой за ручку катушки (она подсветится) и крутите: первый оборот закрывает дужку. Ведите приманку так, как показано в атласе на планшете'},
   {k:['hook'],t:'Ждите. Лёгкие толчки в руке — рыба пробует. Сильный рывок — резко дёрните удилище вверх. Дальше рука чувствует рыбу: гул — тянет, удары — трясёт головой, тяжёлые рывки — уходит вглубь'},
   {k:['landing'],t:'Рука с удочкой чувствует рыбу: ровный гул — тянет, тишина — леска провисла, подматывайте. Кольцо на катушке: красное — ослабьте правым стиком'},
@@ -101,7 +101,7 @@ S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
 /* ---------- settings ---------- */
 function segInit(attr,key,parse,cb){document.querySelectorAll(`[${attr}]`).forEach(b=>{const v=parse(b.getAttribute(attr));b.setAttribute('aria-pressed',String(v===save[key]));
   b.addEventListener('click',()=>{save[key]=v;persist();document.querySelectorAll(`[${attr}]`).forEach(x=>x.setAttribute('aria-pressed',String(x===b)));cb&&cb();});});}
-segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);segInit('data-haptic','hapticGain',Number);segInit('data-eye','eyeOff',Number);segInit('data-cast','castAssist',Number);segInit('data-tags','tags',String);
+segInit('data-reelmode','reelMode',String);segInit('data-rodhand','rodHand',String,()=>setCrankSide());segInit('data-move','move',String);segInit('data-detail','detail',String);segInit('data-haptic','hapticGain',Number);segInit('data-eye','eyeOff',Number);segInit('data-tags','tags',String);
 document.getElementById('bTut')?.addEventListener('click',()=>{save.tutorial=0;persist();msg('Обучение начнётся заново','',1.4);});
 ui.bStart.addEventListener('click',()=>{audioInit();startTrip();});
 ui.bView.addEventListener('click',()=>toggleView());ui.bIce.addEventListener('click',()=>clearBoard());ui.bHome.addEventListener('click',()=>goHome());ui.bMute.addEventListener('click',()=>toggleMute());
@@ -605,7 +605,7 @@ function placeVRPanel(){
   if(d.lengthSq()<.5)d.set(0,0,-1);scene.attach(vrPanel);vrPanel.position.copy(p).addScaledVector(d,1.65);vrPanel.position.y-=.10;vrPanel.lookAt(p);
 }
 const portRaycaster=new THREE.Raycaster(),portRays=new Map();
-const vrOptions=[['rodhand','Удочка'],['reelmode','Катушка'],['move','Передвижение'],['haptic','Вибрация'],['eye','Высота глаз'],['cast','Помощь при забросе'],['detail','Детализация'],['tags','Подписи']];
+const vrOptions=[['rodhand','Удочка'],['reelmode','Катушка'],['move','Передвижение'],['haptic','Вибрация'],['eye','Высота глаз'],['detail','Детализация'],['tags','Подписи']];
 function updateVRShop(){
   const active=renderer.xr.isPresenting&&S.gameState!=='sea'&&vrPanel.visible,hover=new Set();let click=null;
   for(const h of Object.values(HANDS)){
