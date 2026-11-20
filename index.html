@@ -220,7 +220,7 @@ td.num,th.num{text-align:right}
     </div>
     <div class="row">
       <button class="btn" id="bStart" type="button">Выйти в море</button>
-      <button class="btn ghost" id="bVR" type="button" hidden>Войти в VR</button>
+      <button class="btn ghost" id="bVR" type="button" hidden>Войти в VR · Атлас</button>
       <button class="btn ghost" id="bTut" type="button">Пройти обучение заново</button>
     </div>
     <p class="note" id="vrNote">Планшет слева у борта содержит атлас рыб, приманки и обучение. Наведите свободную руку и нажмите курок.</p>
@@ -233,6 +233,29 @@ td.num,th.num{text-align:right}
 
 <dialog id="atlasDialog" aria-label="Бортовой атлас"><button type="button" id="closeAtlas">Закрыть</button></dialog>
 <script type="importmap">
-{ "imports": { "three": "./vendor/three.module.js", "cannon-es": "./vendor/cannon-es.js" } }
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "cannon-es": "./vendor/cannon-es.js",
+    "./js/anatomy.js": "./js/anatomy.js?v=atlas-2",
+    "./js/assembly.js": "./js/assembly.js?v=atlas-2",
+    "./js/core.js": "./js/core.js?v=atlas-2",
+    "./js/fillet-lift.js": "./js/fillet-lift.js?v=atlas-2",
+    "./js/fillet.js": "./js/fillet.js?v=atlas-2",
+    "./js/fishbody.js": "./js/fishbody.js?v=atlas-2",
+    "./js/fishing.js": "./js/fishing.js?v=atlas-2",
+    "./js/hands.js": "./js/hands.js?v=atlas-2",
+    "./js/haptics.js": "./js/haptics.js?v=atlas-2",
+    "./js/interact.js": "./js/interact.js?v=atlas-2",
+    "./js/main.js": "./js/main.js?v=atlas-2",
+    "./js/materials.js": "./js/materials.js?v=atlas-2",
+    "./js/organ-profiles.js": "./js/organ-profiles.js?v=atlas-2",
+    "./js/physics.js": "./js/physics.js?v=atlas-2",
+    "./js/schools.js": "./js/schools.js?v=atlas-2",
+    "./js/tablet.js": "./js/tablet.js?v=atlas-2",
+    "./js/tags.js": "./js/tags.js?v=atlas-2",
+    "./js/tissue.js": "./js/tissue.js?v=atlas-2"
+  }
+}
 </script>
-<script type="module" src="js/main.js"></script>
+<script type="module">import "./js/main.js";</script>
