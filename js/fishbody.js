@@ -3,11 +3,15 @@
    cut anywhere and at any angle. The cut face is drawn by the shader from the same layer rules. */
 import { THREE, S, V, clamp, smooth, hash, TAU, sun, hemi, save, msg } from './core.js';
 
-import { organSamples, organGeometry, skinGeometry, skinMaterial } from './tissue.js';
+import { organShape, organContains, organGeometry, skinGeometry, skinMaterial } from './tissue.js';
+import { organLayout } from './organ-profiles.js';
+import { anatomyGLSL, anatomyUniforms, partAt, filletDepth } from './anatomy.js';
+import { partBit, prepareAssembly, updateAssemblyFaces } from './assembly.js';
+import { prepareFlanks } from './fillet.js';
 
-export const M={E:0,SKIN:1,FLESH:2,BLOOD:3,BONE:4,HEAD:5,GILL:6,EYE:7,FIN:8,STOMACH:9,LIVER:10,GUT:11,ROE:12,GALL:13,LINING:14,RIB:15,SKIN2:16,CAV:20};
-export const ORGAN_NAME={[M.STOMACH]:'Желудок',[M.LIVER]:'Печень',[M.GUT]:'Кишечник',[M.ROE]:'Икра',[M.GALL]:'Жёлчный пузырь'};
-const ORGAN_COL={[M.STOMACH]:0xc79c94,[M.LIVER]:0x7d3f28,[M.GUT]:0xdcbfa6,[M.ROE]:0xf08a3a,[M.GALL]:0x4f8a3a};
+export const M={E:0,SKIN:1,FLESH:2,BLOOD:3,BONE:4,HEAD:5,GILL:6,EYE:7,FIN:8,STOMACH:9,LIVER:10,GUT:11,ROE:12,GALL:13,LINING:14,RIB:15,SKIN2:16,HEART:17,BLADDER:18,CAV:20};
+export const ORGAN_NAME={[M.STOMACH]:'Желудок',[M.LIVER]:'Печень',[M.GUT]:'Кишечник',[M.ROE]:'Икра',[M.GALL]:'Жёлчный пузырь',[M.HEART]:'Сердце',[M.BLADDER]:'Плавательный пузырь'};
+const ORGAN_COL={[M.STOMACH]:0xc79c94,[M.LIVER]:0x7d3f28,[M.GUT]:0xdcbfa6,[M.ROE]:0xf08a3a,[M.GALL]:0x619449,[M.HEART]:0x9d3743,[M.BLADDER]:0xe4d9c7};
 const MAXP=10,MAXN=6;
 const FAM={round:0,flat:1,eel:2};
 
@@ -55,6 +59,7 @@ function prep(f){
   let F0=0,H0=0;for(let i=0;i<n;i++){const m=mat[i];if(m===M.FLESH||m===M.BLOOD||m===M.LINING||m===M.SKIN)F0++;else if(m===M.HEAD||m===M.GILL||m===M.EYE)H0++;}
   f.F0=F0;f.H0=H0;
   f.geo=buildGeo(f);
+  prepareAssembly(f);
 }
 const inTri=(px,pz,a,b,c)=>{const s1=(b[0]-a[0])*(pz-a[1])-(b[1]-a[1])*(px-a[0]),s2=(c[0]-b[0])*(pz-b[1])-(c[1]-b[1])*(px-b[0]),s3=(a[0]-c[0])*(pz-c[1])-(a[1]-c[1])*(px-c[0]);return (s1>=0&&s2>=0&&s3>=0)||(s1<=0&&s2<=0&&s3<=0);};
 /* material at a fish-local point, ignoring cuts and the skin mask */
@@ -95,6 +100,7 @@ export class FObj{
     prep(fish);fish.refs=(fish.refs||0)+1;fishObjects.add(this);this.fish=fish;this.kind=kind;this.organs=[];this.open=false;this.planes=[];this.notches=[];this.uid=++uidN;
     this.g=new THREE.Group();this.g.userData.vobj=this;this.item=null;this.cut=false;
     if(kind==='fish'){
+      this.parts=7;
       this.keep=new Uint8Array(fish.N).fill(1);this.skeep=new Uint8Array(fish.NS).fill(1);
       this.mat=makeMat(fish);this.mesh=new THREE.Mesh(fish.geo,this.mat);this.mesh.userData.vobj=this;this.mesh.frustumCulled=false;this.g.add(this.mesh);
     }
@@ -111,44 +117,53 @@ export class FObj{
     return out.copy(this.bounds);
   }
   get count(){if(!this.keep)return 1;let n=0;for(let i=0;i<this.keep.length;i++)n+=this.keep[i];return n;}
-  inside(p){for(const q of this.planes)if(q.x*p.x+q.y*p.y+q.z*p.z>q.w)return false;return true;}
+  inside(p){
+    for(const q of this.planes)if(q.x*p.x+q.y*p.y+q.z*p.z>q.w)return false;
+    return this.kind!=='fish'||this.parts===7||Boolean(this.parts&partBit(partAt(this.fish,p)));
+  }
   flushMeshes(){
-    if(this.kind==='organ'){this.mesh.geometry.dispose();this.mesh.geometry=organGeometry(this.c,this.r,this.planes);this.bounds=null;return;}
+    if(this.kind==='organ'){this.mesh.geometry.dispose();this.mesh.geometry=organGeometry(this.shape,this.planes);this.bounds=null;return;}
     if(this.kind!=='fish')return;const u=this.mat.uniforms;
+    u.uParts.value=this.parts;updateAssemblyFaces(this);
     for(let i=0;i<MAXP;i++)u.uPl.value[i].copy(this.planes[i]||V4(0,0,0,1));u.uNp.value=Math.min(MAXP,this.planes.length);
     for(let i=0;i<MAXN;i++){const nn=this.notches[i];u.uNo.value[i].copy(nn?nn.p:V4(0,0,0,1));u.uNoC.value[i].copy(nn?nn.c:V4(0,0,0,-1));}
     u.uNn.value=Math.min(MAXN,this.notches.length);u.uOpen.value=this.open?1:0;
   }
   setHi(on){if(this.kind==='fish')this.mat.uniforms.uHi.value=on?1:0;else for(const o of this.g.children)if(o.material&&o.material.emissive)o.material.emissive.setHex(on?0x3a2a10:0);}
-  setSwim(a){if(this.kind==='fish')this.mat.uniforms.uSwim.value=a;}
+  setSwim(a,phase=-1){
+    if(this.kind!=='fish')return;
+    this.mat.uniforms.uSwim.value=a;
+    this.mat.uniforms.uSwimPhase.value=phase;
+  }
   dispose(){
     if(this.disposed)return;this.disposed=true;fishObjects.delete(this);
     if(this.mat)this.mat.dispose();for(const o of this.organs)o.dispose();
     if(this.kind!=='fish')for(const o of this.g.children){o.geometry?.dispose();o.material?.map?.dispose();o.material?.dispose();}
-    const f=this.fish;if(--f.refs===0){f.geo.dispose();f.skinTex.dispose();}
+    for(const face of this.faces?.values()||[])face.material.dispose();
+    const f=this.fish;if(--f.refs===0){
+      for(const face of f.cutSurfaces.values()){face.geometry.dispose();face.material.dispose();}
+      f.cutSurfaces.clear();f.geo.dispose();f.skinTex.dispose();
+    }
   }
 }
 const V4=(x,y,z,w)=>new THREE.Vector4(x,y,z,w);
 
-function makeOrgan(fish,mat,c,r,samples=null){
-  const ob=new FObj(fish,'organ');ob.organ=mat;ob.c=c.clone();ob.r=r.clone();
-  ob.samples=samples||organSamples(c,r);ob.keep=new Uint8Array(ob.samples.N).fill(1);
-  const m=new THREE.Mesh(organGeometry(c,r,[]),new THREE.MeshStandardMaterial({color:ORGAN_COL[mat],vertexColors:true,roughness:.28,metalness:.05,emissive:0}));
-  ob.mesh=m;ob.g.add(m);m.userData.vobj=ob;
-  ob.anchor=V(c.x+r.x*.9,c.y,c.z);
-  return ob;
+function makeOrgan(fish,mat,shape,planes=[]){
+  const ob=new FObj(fish,'organ');ob.organ=mat;ob.shape=shape;ob.c=shape.c;ob.r=shape.r;
+  ob.samples=shape.samples;ob.keep=new Uint8Array(ob.samples.N).fill(1);ob.planes=planes;
+  const color=new THREE.Color(mat===M.LIVER&&fish.sp.liver?0xc99465:ORGAN_COL[mat]).multiply(new THREE.Color(shape.style.tint));
+  const material=new THREE.MeshStandardMaterial({color,vertexColors:true,roughness:mat===M.BLADDER?.22:.37});
+  ob.mesh=new THREE.Mesh(organGeometry(shape,planes),material);ob.g.add(ob.mesh);ob.mesh.userData.vobj=ob;
+  ob.anchor=shape.anchor.clone();return ob;
 }
 export function buildFish(fish){
-  const ob=new FObj(fish,'fish');const f=fish,{c,r}=f.cav;
-  const org=[
-    [M.STOMACH,V(c.x+r.x*.3,c.y,c.z+r.z*.1),V(r.x*.42,r.y*.72,r.z*.5)],
-    [M.LIVER,V(c.x+r.x*.45,c.y,c.z+r.z*.45),V(r.x*.32,r.y*.78,r.z*.3)],
-    [M.GUT,V(c.x-r.x*.4,c.y,c.z-r.z*.15),V(r.x*.42,r.y*.6,r.z*.42)],
-    [M.GALL,V(c.x+r.x*.18,c.y+r.y*.3,c.z+r.z*.45),V(Math.max(.004,r.x*.08),Math.max(.004,r.y*.25),Math.max(.004,r.z*.16))],
-  ];
-  if(f.female)org.push([M.ROE,V(c.x-r.x*.15,c.y,c.z+r.z*.3),V(r.x*.45,r.y*.65,r.z*.36)]);
-  for(const [m,cc,rr] of org){const o=makeOrgan(f,m,cc,rr);ob.organs.push(o);ob.g.add(o.g);}
-  ob.flushMeshes();
+  const ob=new FObj(fish,'fish');
+  fish.organKg=0;
+  for(const spec of organLayout(fish,M)){
+    const shape=organShape(fish.cav,spec),organ=makeOrgan(fish,spec.material,shape);
+    fish.organKg+=shape.kg;ob.organs.push(organ);ob.g.add(organ.g);
+  }
+  prepareFlanks(ob);ob.flushMeshes();
   return ob;
 }
 
@@ -209,14 +224,16 @@ float layerAt(vec3 p){
   return 2.;}
 `;
 const VS=`
-attribute float aFin;
-uniform float uSwim,uTime;
+attribute float aFin,aFlank;
+uniform float uFlankLift;
+uniform float uSwim,uTime,uSwimPhase;
 varying vec3 vL,vW,vN,vCam;varying float vFin;
 ${GLSL_COMMON}
 void main(){
-  vec3 p=position;float xn=p.x/uL+.5;
+  vec3 p=position;p.y+=aFlank*uFlankLift;float xn=p.x/uL+.5;
   float tw=pow(clamp(1.-xn,0.,1.),1.4)+.15;
-  p.y+=uSwim*uL*.07*tw*sin(xn*7.-uTime*9.);
+  float phase=uSwimPhase>=0.?uSwimPhase:uTime*9.;
+  p.y+=uSwim*uL*.07*tw*sin(xn*7.-phase);
   vL=position;vFin=aFin;
   vec4 wp=modelMatrix*vec4(p,1.);vW=wp.xyz;
   vN=normalize(mat3(modelMatrix)*normal);
@@ -227,9 +244,17 @@ const FS=`
 uniform mat4 modelMatrix;uniform mat4 projectionMatrix;
 uniform vec4 uPl[${MAXP}];uniform int uNp;uniform vec4 uNo[${MAXN}];uniform vec4 uNoC[${MAXN}];uniform int uNn;
 uniform sampler2D uSkin;uniform float uHi,uOpen,uFresh;
+uniform float uParts;
 uniform vec3 uBack,uBelly,uStripe,uSpots,uFlesh,uBloodC,uFinC,uSunDir,uSunCol,uSky,uGround,uWater;
 varying vec3 vL,vW,vN,vCam;varying float vFin;
 ${GLSL_COMMON}
+${anatomyGLSL}
+bool ownsPart(vec3 p){
+  if(uParts>6.5)return true;
+  float side=anatomyPartAt(p);
+  float bit=side<-.5?1.:(side>.5?4.:2.);
+  return mod(floor(uParts/bit),2.)>.5;
+}
 vec3 layerCol(float m,vec3 p){
   if(m<1.5)return uFlesh;
   if(m<2.5){float fr=6.2832/(uL/13.);float band=smoothstep(.8,.97,sin(p.x*fr+abs(p.z)*fr*1.7));return uFlesh*(1.-.17*band)*(.96+.06*hash1(floor(p.x*900.)));}
@@ -253,6 +278,7 @@ void main(){
   for(int i=0;i<${MAXP};i++){if(i>=uNp)break;if(dot(uPl[i].xyz,vL)>uPl[i].w)discard;}
   vec3 col;vec3 n=normalize(vN);float spec=0.;float depth=gl_FragCoord.z;
   if(gl_FrontFacing||vFin>.5){
+    if(!ownsPart(vL))discard;
     float xn=vL.x/uL+.5;
     if(vFin>.5){col=uFinC;n=gl_FrontFacing?n:-n;}
     else{
@@ -262,6 +288,7 @@ void main(){
       else if(sk.r<.5){col=layerCol(2.,vL)*.92;spec=.25;}
       else{col=skinCol(xn,th);if(sk.g>.5){spec=.55;col*=.96+.08*sin(xn*uL*420.)*sin(th*40.);}else{col=mix(col,vec3(.85,.82,.76),.22);spec=.1;}}
       if(distance(vL,uEye1)<uEr||distance(vL,uEye2)<uEr){float de=min(distance(vL,uEye1),distance(vL,uEye2))/uEr;col=de<.62?vec3(.01):vec3(.85,.78,.4);spec=.9;}
+      col=mix(vec3(.34,.075,.055),col,smoothstep(.12,.92,sk.b));
       for(int i=0;i<${MAXN};i++){if(i>=uNn)break;
         if(abs(dot(uNo[i].xyz,vL)-uNo[i].w)<.0011&&distance(vL,uNoC[i].xyz)<uNoC[i].w)col=vec3(.35,.05,.05);}
     }
@@ -270,7 +297,7 @@ void main(){
     vec3 dir=normalize(vL-vCam);float te=-1e9;vec3 nc=vec3(0.);
     for(int i=0;i<${MAXP};i++){if(i>=uNp)break;float dn=dot(uPl[i].xyz,dir);if(dn<0.){float t=(uPl[i].w-dot(uPl[i].xyz,vCam))/dn;if(t>te){te=t;nc=uPl[i].xyz;}}}
     if(te<-1e8)discard;
-    vec3 P=vCam+dir*te;float m=layerAt(P);
+    vec3 P=vCam+dir*te;if(!ownsPart(P))discard;float m=layerAt(P);
     if(m<.5)discard;
     if(m>19.5){ // looking into the belly: the far wall of the cavity
       vec3 o=(vCam-uCavC)/uCavR,dd=dir/uCavR;float A=dot(dd,dd),B=dot(o,dd),C=dot(o,o)-1.;float D=B*B-A*C;
@@ -304,36 +331,65 @@ void main(){
 function makeMat(f){
   const sp=f.sp,d=f.d,col=c=>new THREE.Color(c??0);
   const u={
+    ...anatomyUniforms(f),uParts:{value:7},
     uL:{value:d.L},uHR:{value:sp.hR},uWR:{value:sp.wR},uXh:{value:sp.xh},uZs:{value:f.zs},uRib:{value:f.ribStep},uFam:{value:FAM[sp.fam]},uBlood:{value:sp.blood?1:0},
     uStripeOn:{value:sp.stripe?1:0},uSpotsOn:{value:sp.spots?1:0},uTuna:{value:sp.id==='tuna'?1:0},uEr:{value:f.er},uNose:{value:f.nose},
     uCavC:{value:f.cav.c},uCavR:{value:f.cav.r},uEye1:{value:f.eyes[0]},uEye2:{value:f.eyes[1]},
     uPl:{value:Array.from({length:MAXP},()=>V4(0,0,0,1))},uNp:{value:0},uNo:{value:Array.from({length:MAXN},()=>V4(0,0,0,1))},uNoC:{value:Array.from({length:MAXN},()=>V4(0,0,0,-1))},uNn:{value:0},
-    uSkin:{value:f.skinTex},uFresh:{value:f.fresh},uHi:{value:0},uOpen:{value:0},uSwim:{value:0},
+    uSkin:{value:f.skinTex},uFresh:{value:f.fresh},uHi:{value:0},uOpen:{value:0},uSwim:{value:0},uSwimPhase:{value:-1},uFlankLift:{value:0},
     uBack:{value:col(sp.back)},uBelly:{value:col(sp.belly)},uStripe:{value:col(sp.stripe)},uSpots:{value:col(sp.spots)},uFlesh:{value:col(sp.flesh)},uBloodC:{value:col(sp.blood||sp.flesh)},uFinC:{value:col(sp.fin)},
     uSunDir:shared.uSunDir,uSunCol:shared.uSunCol,uSky:shared.uSky,uGround:shared.uGround,uTime:shared.uTime,uWater:shared.uWater,
   };
-  return new THREE.ShaderMaterial({uniforms:u,vertexShader:VS,fragmentShader:FS,side:THREE.DoubleSide});
+  const mat=new THREE.ShaderMaterial({uniforms:u,vertexShader:VS,fragmentShader:FS,side:THREE.DoubleSide});
+  mat.defaultAttributeValues.aFlank=[0];
+  return mat;
 }
 
 /* ---------- queries the game uses ---------- */
 const _inv=new THREE.Matrix4(),_q=V();
 function localOf(ob,pW,out){ob.g.updateMatrixWorld(true);_inv.copy(ob.g.matrixWorld).invert();return out.copy(pW).applyMatrix4(_inv);}
-function matLocal(ob,p){
+export function matLocal(ob,p){
   if(!ob.inside(p))return 0;
-  if(ob.kind==='organ'){const q=_q2.copy(p).sub(ob.c).divide(ob.r);return q.lengthSq()<=1?ob.organ:0;}
+  if(ob.kind==='organ')return organContains(ob.shape,p)?ob.organ:0;
   if(ob.kind!=='fish')return 0;
   const f=ob.fish;let m=layerBase(f,p);
   if(m===M.SKIN){const xn=p.x/f.d.L+.5;const [r,g]=skinAt(f,xn,thetaOf(f,p,xn));m=r<128?M.FLESH:g<128?M.SKIN2:M.SKIN;}
   if(m===M.CAV)return 0;
   return m;
 }
-const _q2=V();
+// Intersect the current section's actual surface, including after previous cuts.
+export function organPlaneIntersects(ob,n,c){
+  const g=ob.mesh.geometry,pos=g.attributes.position,indices=g.index;
+  const total=indices?indices.count:pos.count;
+  for(let i=0;i<total;i+=3){
+    let min=Infinity,max=-Infinity;
+    for(let j=i;j<i+3;j++){
+      const k=indices?indices.getX(j):j,d=n.x*pos.getX(k)+n.y*pos.getY(k)+n.z*pos.getZ(k)-c;
+      min=Math.min(min,d);max=Math.max(max,d);
+    }
+    if(min<=0&&max>=0)return true;
+  }
+  return false;
+}
+// Map a blade in the lifted flap back onto its original tissue. The air
+// between the two moist cut faces offers no resistance.
+function liftedMaterial(ob,p){
+  const lift=ob.lift;
+  if(lift?.amount>0&&lift.weight){
+    const {side}=lift.seam;
+    const separation=lift.weight(p.x,p.z)*lift.amount;
+    const height=side*p.y-filletDepth(ob.fish,p.x/ob.fish.d.L+.5,p.z);
+    if(height>0&&height<separation)return 0;
+    if(height>=separation)p.y-=side*separation;
+  }
+  return matLocal(ob,p);
+}
 /* fast material lookup at world points for one object */
 export function sampler(ob){
   ob.g.updateMatrixWorld(true);const inv=ob.g.matrixWorld.clone().invert();const q=V();
-  return pW=>matLocal(ob,q.copy(pW).applyMatrix4(inv));
+  return pW=>liftedMaterial(ob,q.copy(pW).applyMatrix4(inv));
 }
-export function matAt(ob,pW){return matLocal(ob,localOf(ob,pW,_q));}
+export function matAt(ob,pW){return liftedMaterial(ob,localOf(ob,pW,_q));}
 export function inCavity(ob,pW){if(ob.kind!=='fish')return false;const p=localOf(ob,pW,_q);if(!ob.inside(p))return false;return layerBase(ob.fish,p)===M.CAV;}
 
 /* skin: the flat of the knife takes it off where it slides; the scaler takes off the scales */
@@ -377,7 +433,7 @@ export function cutPiece(ob,n,c){
   if(a<4||b<4)return null;
   if(ob.planes.length>=MAXP)return null;
   if(b>a){n=n.clone().negate();c=-c;for(let i=0;i<f.N;i++)if(ob.keep[i])side[i]^=1;}
-  const nb=new FObj(f,'fish');nb.planes=ob.planes.map(q=>q.clone());nb.notches=ob.notches.map(q=>({p:q.p.clone(),c:q.c.clone()}));nb.open=ob.open;nb.cut=true;
+  const nb=new FObj(f,'fish');nb.parts=ob.parts;nb.planes=ob.planes.map(q=>q.clone());nb.notches=ob.notches.map(q=>({p:q.p.clone(),c:q.c.clone()}));nb.open=ob.open;nb.cut=true;
   for(let i=0;i<f.N;i++){nb.keep[i]=ob.keep[i]&&side[i];ob.keep[i]=ob.keep[i]&&!side[i]?1:0;}
   nb.skeep.fill(0);
   for(let i=0;i<f.NS;i++){if(!ob.skeep[i])continue;const s=n.x*f.spts[i*3]+n.y*f.spts[i*3+1]+n.z*f.spts[i*3+2]>c;nb.skeep[i]=s?1:0;ob.skeep[i]=s?0:1;}
@@ -396,17 +452,44 @@ export function cutPiece(ob,n,c){
   ob.bounds=null;nb.bounds=null;ob.flushMeshes();nb.flushMeshes();
   return nb;
 }
+export function detachFillet(ob,side){
+  const bit=partBit(side),f=ob.fish;
+  if(ob.kind!=='fish'||!(ob.parts&2)||!(ob.parts&bit)||Math.abs(side)!==1)return null;
+  if(!ob.keep.some((k,i)=>k&&f.meatParts[i]===bit)||!ob.keep.some((k,i)=>k&&f.meatParts[i]!==bit))return null;
+  const fillet=new FObj(f,'fish');
+  fillet.parts=bit;ob.parts&=~bit;
+  fillet.planes=ob.planes.map(q=>q.clone());
+  fillet.notches=ob.notches.map(q=>({p:q.p.clone(),c:q.c.clone()}));
+  function transfer(original,detached,owners){
+    for(let i=0;i<original.length;i++){
+      detached[i]=original[i]&&owners[i]===bit?1:0;
+      if(detached[i])original[i]=0;
+    }
+  }
+  transfer(ob.keep,fillet.keep,f.meatParts);transfer(ob.skeep,fillet.skeep,f.skinParts);
+  fillet.g.position.copy(ob.g.position);fillet.g.quaternion.copy(ob.g.quaternion);
+  ob.cut=fillet.cut=true;ob.bounds=null;ob.flushMeshes();fillet.flushMeshes();
+  return fillet;
+}
 export function damageOrgan(ob){
   if(!ob.fish.bile&&[M.GALL,M.STOMACH,M.GUT].includes(ob.organ)){ob.fish.bile=true;msg('Задели потроха!','Желчь и содержимое попали на мясо, оно подешевеет',2.2);}
 }
 export function cutOrgan(ob,n,c){
   if(ob.planes.length>=MAXP)return null;const f=ob.samples,side=new Uint8Array(f.N);let a=0,b=0;
   for(let i=0;i<f.N;i++)if(ob.keep[i]){side[i]=n.x*f.pts[i*3]+n.y*f.pts[i*3+1]+n.z*f.pts[i*3+2]>c?1:0;if(side[i])b++;else a++;}
-  if(a<3||b<3)return null;damageOrgan(ob);
-  const nb=makeOrgan(ob.fish,ob.organ,ob.c,ob.r,ob.samples);nb.planes=ob.planes.map(p=>p.clone());
+  if(!a||!b)return null;damageOrgan(ob);
+  const otherPlanes=[...ob.planes,V4(-n.x,-n.y,-n.z,-c)];
+  const nb=makeOrgan(ob.fish,ob.organ,ob.shape,otherPlanes);
   for(let i=0;i<f.N;i++){nb.keep[i]=ob.keep[i]&&side[i]?1:0;ob.keep[i]=ob.keep[i]&&!side[i]?1:0;}
-  ob.planes.push(V4(n.x,n.y,n.z,c));nb.planes.push(V4(-n.x,-n.y,-n.z,-c));ob.cut=nb.cut=true;
-  nb.g.position.copy(ob.g.position);nb.g.quaternion.copy(ob.g.quaternion);ob.flushMeshes();nb.flushMeshes();return nb;
+  ob.planes.push(V4(n.x,n.y,n.z,c));ob.cut=nb.cut=true;
+  for(const piece of [ob,nb])if(!piece.inside(piece.anchor)){
+    let best=Infinity;
+    for(let i=0;i<f.N;i++)if(piece.keep[i]){
+      const p=_q.fromArray(f.pts,i*3),d=p.distanceToSquared(piece.shape.anchor);
+      if(d<best){piece.anchor.copy(p);best=d;}
+    }
+  }
+  nb.g.position.copy(ob.g.position);nb.g.quaternion.copy(ob.g.quaternion);ob.flushMeshes();return nb;
 }
 export function addNotch(ob,n,c,center,radius){
   if(ob.kind!=='fish')return;
@@ -437,8 +520,9 @@ export function bodyShape(ob){
 }
 export function massOf(ob){
   if(ob.kind==='skin')return ob.skinArea*.001*1050;
-  if(ob.kind==='organ'){const r=ob.r;return 4/3*Math.PI*r.x*r.y*r.z*1050*ob.count/ob.samples.N;}
-  return Math.max(.02,ob.fish.kg*ob.count/ob.fish.N);
+  if(ob.kind==='organ')return ob.shape.kg*ob.count/ob.samples.N;
+  const carcass=ob.fish.kg-(ob.fish.organKg||0);
+  return carcass*ob.count/ob.fish.N+ob.organs.reduce((sum,o)=>sum+massOf(o),0);
 }
 export function stats(ob){
   const f=ob.fish,s={n:0,flesh:0,skin:0,scaled:0,bone:0,head:0,surface:0};
@@ -446,6 +530,36 @@ export function stats(ob){
     if(m===M.FLESH||m===M.BLOOD||m===M.LINING||m===M.SKIN)s.flesh++;else if(m===M.BONE||m===M.RIB)s.bone++;else if(m===M.HEAD||m===M.GILL||m===M.EYE)s.head++;}
   for(let i=0;i<f.NS;i++){if(!ob.skeep[i])continue;const xn=f.suv[i*2];if(xn>=f.sp.xh)continue;s.surface++;const [r,g]=skinAt(f,xn,f.suv[i*2+1]);if(r>127){s.skin++;if(g<128)s.scaled++;}}
   return s;
+}
+// Clip the anatomical backbone against the same half-planes that bound the piece.
+// Thin steaks can contain no randomly sampled bone even when the spine crosses both faces.
+function backboneSection(ob){
+  const f=ob.fish,d=f.d;
+  let start=d.X(.03),end=d.X(f.sp.xh),tailFace=null,headFace=null;
+  for(const plane of ob.planes){
+    const limit=plane.w-plane.z*f.zs;
+    if(Math.abs(plane.x)<1e-8){if(limit<0)return null;continue;}
+    const x=limit/plane.x;
+    if(plane.x<0&&x>=start){start=x;tailFace=plane;}
+    if(plane.x>0&&x<=end){end=x;headFace=plane;}
+  }
+  return end>start?{start,end,tailFace,headFace}:null;
+}
+function isSteak(ob,section){
+  if(!section?.tailFace||!section.headFace)return false;
+  const {start,end,tailFace:a,headFace:b}=section,f=ob.fish,d=f.d;
+  const thickness=end-start,mid=(start+end)/2,xn=mid/d.L+.5;
+  if(xn<.14||thickness<.009||thickness>d.L*(f.sp.fam==='eel'?.30:.20))return false;
+  // Opposed, nearly transverse knife faces distinguish a slice from a lengthwise or diagonal cut.
+  if(Math.min(-a.x,b.x)<.82||a.x*b.x+a.y*b.y+a.z*b.z>-.85)return false;
+  // Follow the midpoint between the two faces across the fish. The inner 65% of each
+  // cross-sectional radius must remain on the piece, even if the rind was trimmed.
+  const slopeY=(a.y/a.x+b.y/b.x)/2,slopeZ=(a.z/a.x+b.z/b.x)/2;
+  const w=.65*d.W(xn),h=.65*d.H(xn);
+  return ob.planes.every(p=>{
+    const reach=Math.hypot(w*(p.y-p.x*slopeY),h*(p.z-p.x*slopeZ));
+    return p.x*mid+p.z*f.zs+reach<=p.w+1e-8;
+  });
 }
 export function evaluate(ob){
   const f=ob.fish,sp=f.sp;const fresh=.5+.5*f.fresh;const base=f.kg*sp.price;
@@ -456,12 +570,14 @@ export function evaluate(ob){
     return {kind:ORGAN_NAME[ob.organ]||'Потроха',kg,value:0,waste:true};}
   const s=stats(ob);const kg=massOf(ob);const mf=s.flesh/Math.max(1,f.F0),hf=s.head/Math.max(1,f.H0);
   if(mf<.006&&hf<.25)return {kind:'Кости и плавники',kg,value:0,waste:true};
+  const spine=backboneSection(ob);
   let kind,mult;
-  if(ob.organs.length){kind='Непотрошёная';mult=.55;}
+  if(ob.parts===2){kind=ob.organs.length?'Хребет с потрохами':'Хребет на уху';mult=.5;}
+  else if(ob.organs.length){kind='Непотрошёная';mult=.55;}
   else if(s.head>s.n*.5){return {kind:'Голова',kg,value:base*.25*hf*fresh,waste:false};}
-  else if(s.bone>s.n*.015){
-    if(sp.fam==='eel'&&mf>.06&&mf<.45){kind='Стейк';mult=1.5;}
-    else if(mf<.12){kind='Хребет на уху';mult=.5;}
+  else if(s.head<s.n*.05&&isSteak(ob,spine)){kind='Стейк';mult=1.5;}
+  else if(ob.parts!==1&&ob.parts!==4&&(spine||s.bone>s.n*.015)){
+    if(mf<.12){kind='Хребет на уху';mult=.5;}
     else if(mf>.6){kind='Тушка';mult=1.0;}
     else{kind='Кусок на кости';mult=1.15;}
   }else{
@@ -469,7 +585,7 @@ export function evaluate(ob){
     if(sk<.05){kind='Филе без кожи';mult=1.9;}else if(sk<.4){kind='Филе, кожа снята не до конца';mult=1.7;}else{kind='Филе';mult=1.6;}
   }
   if(hf>.2&&kind!=='Голова')mult*=.85;
-  if(mf<.03){kind='Обрезки';mult=.4;}
+  if(mf<.03&&kind!=='Стейк'){kind='Обрезки';mult=.4;}
   if(s.surface>20&&s.skin>10&&s.scaled/s.skin>.8){mult*=1.12;kind+=', без чешуи';}
   if(f.bile)mult*=.8;
   return {kind:kind+(f.bile?' (желчь)':''),kg,value:base*mf*mult*fresh,waste:false};

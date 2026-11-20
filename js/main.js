@@ -1,17 +1,19 @@
+import {makeTablet} from './tablet.js';
 /* Штормовой улов — game flow, input, VR session, HUD */
 import { THREE, S, V, UP, TAU, clamp, lerp, smooth, rand, damp, fmtKg, save, persist, UPG, lineStrength, knifeMult, SPECIES, SP, LURES, LU,
   renderer, scene, camera, rig, boat, TABLE, ICE, fishRoot, hPlane, PLAYER, DECK_SPOT, HOLSTER, Mat, ui, msg, setHint, resetHint, tickMsg, vrMsg,
   sfx, audioInit, audioUpdate, AU, splash, label, updateParts, updateFloaters, updateBirds, updateEnv, updateAnims, clearAnims, fly, iceContent, bucketContent, disposeObject } from './core.js';
 import { CANNON, world, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
-import { M, newFish, buildFish, scrape, descale, sampler, updateFishShading } from './fishbody.js';
+import { M, ORGAN_NAME, newFish, buildFish, scrape, descale, sampler, updateFishShading } from './fishbody.js';
 import { items, pieceItems, addPiece, removeItem, registerTool, toHolster, HANDS, mainHand, offHand, updateHand, syncItems, updateLinks,
   collect, knifeSweep, cutStep, cutFrame, markCut, releaseOrgan, toIce, toBucket, onTable, boatPos, mouse, mouseGrab, mouseRelease, updateMouseGrab, links, edgeMats, handMatrixBoat, releaseHand } from './interact.js';
 import { hapPulse, hapCont, hapBoth, hapFlush, hapLog } from './haptics.js';
+import { flankGuide } from './fillet.js';
 import { buildHand, animateHand } from './hands.js';
 import { updateTags } from './tags.js';
 import { updateSchools } from './schools.js';
 import { F, rod, rodItem, net, netItem, setCrankSide, setLureModel, tieLure, rodToDesk, rodOffDesk, rodInHand, deskHand, updateDeskRod, deskCast,
-  fishingVR, updateFishing, updateRodLine, tryHook, liftOrNet, resetFishing, crank, forceHook, endFishingVR } from './fishing.js';
+  fishingVR, updateFishing, updateRodLine, tryHook, liftOrNet, resetFishing, crank, forceHook, endFishingVR, deskLowerLine } from './fishing.js';
 
 /* ---------- knife ---------- */
 const bevelMat=new THREE.MeshStandardMaterial({color:0xf2f5f8,metalness:1,roughness:.12,side:THREE.DoubleSide});
@@ -71,7 +73,7 @@ const TUT=[
   {k:['rod'],t:'Поднесите руку к удочке у борта: появится табличка. Инструменты берутся боковой кнопкой, в том числе второй рукой. Курок берёт щепотью приманки, куски и ручку катушки'},
   {k:['lureswap','cast'],t:'Смена приманки: возьмите приманку боковой кнопкой и курком отстегните (или возьмите щепотью и потяните), поднесите любую из ящика к карабину. Или сразу забрасывайте'},
   {k:['cast'],t:'Зажмите A/X: палец прижал леску и дужка открылась. Махните и отпустите A/X на взмахе. Курок распускает леску. Жёлтая дуга покажет, куда упадёт приманка'},
-  {k:['crank'],t:'Возьмитесь свободной рукой за ручку катушки (она подсветится) и крутите: первый оборот закрывает дужку. Ведите приманку так, как подсказано на запястье'},
+  {k:['crank'],t:'Возьмитесь свободной рукой за ручку катушки (она подсветится) и крутите: первый оборот закрывает дужку. Ведите приманку так, как показано в атласе на планшете'},
   {k:['hook'],t:'Ждите. Лёгкие толчки в руке — рыба пробует. Сильный рывок — резко дёрните удилище вверх. Дальше рука чувствует рыбу: гул — тянет, удары — трясёт головой, тяжёлые рывки — уходит вглубь'},
   {k:['landing'],t:'Рука с удочкой чувствует рыбу: ровный гул — тянет, тишина — леска провисла, подматывайте. Кольцо на катушке: красное — ослабьте правым стиком'},
   {k:['netted','unhooked'],t:'Усталую мелкую рыбу можно взять рукой из воды. Крупную — подсаком с крюка у борта'},
@@ -83,6 +85,16 @@ const TUT=[
   {k:['ice'],t:'Откройте крышку ящика со льдом за ручку и положите туда улов — продаётся только то, что во льду. Ножом плашмя можно сдвигать куски'},
   {k:['port'],t:'Держите Y/B — домой. В порту наведите луч от руки на «Купить» или «Снова в море», нажмите курок'},
 ];
+const atlas=makeTablet(TUT);
+const atlasDialog=document.getElementById('atlasDialog'),atlasCanvas=atlas.screen.material.map.image;
+atlasDialog.prepend(atlasCanvas);
+document.getElementById('bAtlas').onclick=()=>atlasDialog.showModal();
+document.getElementById('closeAtlas').onclick=()=>atlasDialog.close();
+atlasDialog.addEventListener('keydown',e=>e.stopPropagation());
+atlasCanvas.onclick=e=>{
+  const r=atlasCanvas.getBoundingClientRect();
+  atlas.activate({x:(e.clientX-r.left)/r.width,y:1-(e.clientY-r.top)/r.height});
+};
 S.fn.tut=key=>{const st=TUT[save.tutorial];if(!st||!st.k.includes(key))return;save.tutorial++;persist();sfx.coin();if(save.tutorial>=TUT.length)msg('Обучение пройдено','Удачной рыбалки!',2);};
 S.fn.onIce=(it,ev)=>{if(it.vobj.kind==='fish')S.fn.tut('ice');};
 
@@ -100,9 +112,13 @@ ui.bVR.addEventListener('click',async()=>{
   try{const s=await navigator.xr.requestSession('immersive-vr',{optionalFeatures:['local-floor','bounded-floor']});await renderer.xr.setSession(s);
     rodOffDesk();if(!knifeItem.inHolster&&!knifeItem.heldBy)toHolster(knifeItem);knifeItem.desk=false;
     s.addEventListener('end',()=>{
-      endFishingVR();mouseRelease();
+      endFishingVR();mouseRelease();vrPanel.visible=false;
+      for(const line of portRays.values())line.visible=false;
       if(knifeItem.desk)knifeItem.desk=false;toHolster(knifeItem);S.view='sea';rodToDesk();resetHint();
-    });if(S.gameState==='port'){placeVRPanel();drawVRPanel(portState.reason,portState.total);}else if(S.gameState!=='sea')startTrip();
+    });if(S.gameState!=='sea'){
+      portState.settings=S.gameState==='menu';
+      s.requestAnimationFrame(()=>{if(renderer.xr.isPresenting&&S.gameState!=='sea'){placeVRPanel();drawVRPanel(portState.reason,portState.total);}});
+    }
   }catch(e){ui.vrNote.textContent='VR в этом окне недоступен. Откройте игру по ссылке на GitHub Pages в браузере Quest.';}
 });
 
@@ -112,7 +128,7 @@ for(let i=0;i<2;i++){
   const hand=buildHand();hand.root.position.set(0,-.005,.045);grip.add(hand.root);const mitt=hand.root;
   const h={ctl,grip,mitt,hand,src:null,held:null,prev:{a:false,b:false,x:false}};
   ctl.addEventListener('connected',e=>{h.src=e.data;const L=e.data.handedness==='left';hand.root.scale.x=L?1:-1;hand.root.rotation.z=L?Math.PI/2:-Math.PI/2;HANDS[e.data.handedness==='left'?'left':'right']=h;h.name=e.data.handedness;});
-  ctl.addEventListener('disconnected',()=>{releaseHand(h);h.src=null;for(const k in HANDS)if(HANDS[k]===h)HANDS[k]=null;});
+  ctl.addEventListener('disconnected',()=>{releaseHand(h);h.src=null;h.shopDown=false;h.bHeld=0;h.prevSq=h.prevTr=false;for(const k in HANDS)if(HANDS[k]===h)HANDS[k]=null;});
 }
 const wristCanvas=document.createElement('canvas');wristCanvas.width=512;wristCanvas.height=320;
 const wristTex=new THREE.CanvasTexture(wristCanvas);wristTex.colorSpace=THREE.SRGBColorSpace;
@@ -167,7 +183,7 @@ function vrButtons(dt){
   // A/X: put everything on the table into the ice box. Hold Y/B: go home.
   for(const h of Object.values(HANDS)){if(!h||!h.src||!h.src.gamepad)continue;const g=h.src.gamepad;
     const a=!!(g.buttons[4]&&g.buttons[4].pressed),b=!!(g.buttons[5]&&g.buttons[5].pressed);
-    if(S.gameState==='port'){h.prev.a=a;continue;}
+    if(S.gameState!=='sea'){h.prev.a=a;h.bHeld=0;continue;}
     h.prev.a=a;
     if(b){h.bHeld=(h.bHeld||0)+dt;if(h.bHeld>1.5){h.bHeld=-99;endTrip('home');}}else h.bHeld=0;}
 }
@@ -176,7 +192,7 @@ function vrButtons(dt){
 const KN={pos:V(),init:false,vel:V(),prevHand:V(),state:'free',blockT:0,saw:0,sawSign:0,boneOK:0,prevEdge:null,tick:0};
 const K_SPRING=130;                       // N per metre of lag between hand and blade
 const TH={[M.SKIN]:1.0,[M.SKIN2]:.8,[M.FLESH]:.45,[M.BLOOD]:.45,[M.LINING]:.5,[M.RIB]:2.4,[M.HEAD]:2.8,[M.GILL]:1.4,[M.EYE]:.8,[M.FIN]:.2,
-  [M.BONE]:30,[M.STOMACH]:.25,[M.LIVER]:.3,[M.GUT]:.25,[M.ROE]:.2,[M.GALL]:.2};
+  [M.BONE]:30,[M.STOMACH]:.25,[M.LIVER]:.3,[M.GUT]:.25,[M.ROE]:.2,[M.GALL]:.2,[M.HEART]:.4,[M.BLADDER]:.15};
 const BODY_LOCAL=[];for(let z=-.03;z>-.21;z-=.02)BODY_LOCAL.push(V(0,.004,z),V(0,-.008,z));
 const _rq=new THREE.Quaternion(),_inv=new THREE.Quaternion();
 const _km=new THREE.Matrix4(),_kp=V(),_kq=new THREE.Quaternion(),_ks=V();
@@ -245,7 +261,7 @@ function vrKnife(dt){
       const pw=prevE.map(p=>boat.localToWorld(p)),nw=nowE.map(p=>boat.localToWorld(p));
       if(ev.e>0||cur.e>0){
         const r=cutStep(pw,nw,{chop:KN.boneOK>0||strike>10,vr:true});
-        removedTotal+=r.removed;rib+=r.mats[M.RIB]&&!KN.inRib?1:0;KN.inRib=!!r.mats[M.RIB];for(const k of [M.STOMACH,M.LIVER,M.GUT,M.ROE,M.GALL])organs+=r.mats[k]||0;if((r.mats[M.BONE]||0)>0&&(KN.boneOK>0||strike>10))boneCut=true;
+        removedTotal+=r.removed;rib+=r.mats[M.RIB]&&!KN.inRib?1:0;KN.inRib=!!r.mats[M.RIB];for(const k of [M.STOMACH,M.LIVER,M.GUT,M.ROE,M.GALL,M.HEART,M.BLADDER])organs+=r.mats[k]||0;if((r.mats[M.BONE]||0)>0&&(KN.boneOK>0||strike>10))boneCut=true;
         for(const k in ev.mm)if(!cutMat||ev.mm[k]>(ev.mm[cutMat]||0))cutMat=+k;
       }
       KN.pos.copy(cand);cur=ev;budget-=sub;
@@ -348,11 +364,14 @@ addEventListener('keydown',e=>{
   if(e.repeat)return;
   if(/^Digit[1-5]$/.test(e.code)){tieLure(LURES[+e.code.slice(5)-1].id);return;}
   switch(e.code){
+    case 'KeyL':
+      if(S.view==='sea'&&!renderer.xr.isPresenting)deskLowerLine(true);
+      break;
     case 'Space':e.preventDefault();onFlick();break;
     case 'KeyE':case 'Tab':e.preventDefault();toggleView();break;
     case 'KeyQ':clearBoard();break;
     case 'KeyF':flipPiece();break;
-    case 'KeyG':pullOrgansDesk();break;
+    case 'KeyG':if(!e.repeat)pullOrgansDesk();break;
     case 'KeyX':board.mode=NEXT[board.mode];if(board.mode==='h')autoHeight();sfx.click(.2);resetHint();msg(MODES[board.mode],{v:'Ведите мышью через рыбу от края до края',slit:'Неглубоко, вдоль живота, чтобы вскрыть брюхо',h:'Колесо мыши меняет высоту',s:'Водите мышью по коже: лоскут можно поднять и бросить в ведро',sc:'Водите мышью по коже: чешуя слетает, кожа остаётся'}[board.mode],1.3);break;
     case 'KeyR':goHome();break;
     case 'KeyM':toggleMute();break;
@@ -360,10 +379,14 @@ addEventListener('keydown',e=>{
     case 'BracketLeft':case 'Minus':setDrag(F.drag-.05);break;
   }
 });
+function releaseDeskLine(){if(!renderer.xr.isPresenting)deskLowerLine(false);}
+addEventListener('keyup',e=>{if(e.code==='KeyL')releaseDeskLine();});
+addEventListener('blur',releaseDeskLine);
 function setDrag(v){F.drag=clamp(Math.round(v*100)/100,.2,1.4);sfx.click(.2);}
 function onFlick(){if(S.gameState!=='sea'||S.view!=='sea')return;if(F.state==='water')tryHook();else if(F.state==='landing')liftOrNet();}
 function toggleView(){
   if(S.gameState!=='sea'||renderer.xr.isPresenting)return;if(F.state==='wind')F.state='ready';
+  releaseDeskLine();
   S.view=S.view==='sea'?'table':'sea';
   if(S.view==='table'){rodOffDesk();if(knifeItem.inHolster){scene.attach(knife);knifeItem.inHolster=false;knifeItem.desk=true;}}
   else{rodToDesk();if(knifeItem.desk){knifeItem.desk=false;toHolster(knifeItem);}desk.drag=null;desk.line.visible=false;mouseRelease();}
@@ -416,8 +439,12 @@ function pullOrgansDesk(){
   if(!it||!it.vobj.organs.length)it=pieceItems().find(p=>p.vobj.organs.length&&p.vobj.open);
   if(!it){const closed=pieceItems().find(p=>p.vobj.organs.length);msg(closed?'Брюхо ещё закрыто':'Потрохов нет',closed?'Сначала надрежьте живот: X → «Надрез»':'',1.8);return;}
   if(!it.vobj.open){msg('Брюхо ещё закрыто','Надрежьте живот: X → «Надрез»',1.8);return;}
-  for(const org of [...it.vobj.organs]){const o=releaseOrgan(it,org,false);if(o){o.body.position.y+=.08;o.body.velocity.set(rand(-.3,.3),.8,rand(-.6,-.2));}}
-  sfx.squelch();msg('Потроха вынуты','Икру и печень трески — в лёд (ПКМ), остальное — в ведро',2);
+  const organs=it.vobj.organs;
+  const hit=raycaster.intersectObjects(organs.map(o=>o.mesh),false)[0];
+  const selected=hit?.object.userData.vobj||organs[0];
+  const loose=releaseOrgan(it,selected,false);
+  loose.body.position.y+=.06;loose.body.velocity.set(rand(-.1,.1),.43,-.22);
+  sfx.squelch();msg(ORGAN_NAME[selected.organ],organs.length?'Наведите на следующий орган и нажмите G':'Брюхо очищено',1.8);
 }
 function flipPiece(){
   if(S.view!=='table')return;let it=hitUnderCursor()?.object.userData.it;
@@ -428,6 +455,10 @@ function flipPiece(){
 function autoHeight(){
   let best=null,bv=0;for(const p of pieceItems().filter(onTable)){if(p.vobj.kind!=='fish')continue;if(p.body.mass>bv){bv=p.body.mass;best=p;}}
   if(!best)return;const ob=best.vobj;ob.g.updateMatrixWorld(true);fishRoot.updateMatrixWorld(true);const inv=fishRoot.matrixWorld.clone().invert();
+  const toBoard=new THREE.Matrix4().multiplyMatrices(inv,ob.g.matrixWorld);
+  const side=Math.sign(V(0,1,0).transformDirection(toBoard).y)||1;
+  const heights=flankGuide(ob,side).map(p=>p.clone().applyMatrix4(toBoard).y).sort((a,b)=>a-b);
+  if(heights.length){board.hY=clamp(heights[Math.floor(heights.length/2)],.002,.3);return;}
   let top=-1e9,anyBone=false,maxY=-1e9;const c=V();const f=ob.fish;
   for(let i=0;i<f.N;i++){if(!ob.keep[i])continue;c.set(f.pts[i*3],f.pts[i*3+1],f.pts[i*3+2]).applyMatrix4(ob.g.matrixWorld).applyMatrix4(inv);
     if(c.y>maxY)maxY=c.y;if(f.mat[i]===M.BONE){anyBone=true;if(c.y>top)top=c.y;}}
@@ -485,6 +516,7 @@ function updateLid(dt){
 /* ---------- trip flow ---------- */
 function clearGroup(g){while(g.children.length)disposeObject(g.children[0]);}
 function startTrip(){
+  portState.settings=false;
   S.gameState='sea';S.tripT=0;S.storm=0;S.view='sea';walk.off.set(0,0,0);walk.yaw=0;
   ui.start.hidden=true;ui.port.hidden=true;ui.hud.hidden=false;vrPanel.visible=false;
   resetFishing();mouseRelease();cutFrame(true);KN.init=false;scPrev=null;clearAnims();
@@ -498,6 +530,7 @@ function startTrip(){
   msg('Отдать швартовы!','Тихая вода. Над косяком кружат чайки',2.6);resetHint();
 }
 function endTrip(reason){
+  if(atlasDialog.open)atlasDialog.close();
   if(S.gameState!=='sea')return;S.gameState='port';ptr.down=false;
   // only what lies in the ice box is sold
   resetFishing();clearAnims();
@@ -549,14 +582,21 @@ function drawVRPanel(reason,total){
     portState.buttons.push({key,x,y,w,h,enabled});g.fillStyle=!enabled?'#26383f':portState.hover.has(key)?'#f0cc77':'#d0a54c';g.fillRect(x,y,w,h);
     g.fillStyle=enabled?'#0c161b':'#9ba8a7';g.font='600 17px sans-serif';g.textAlign='center';g.fillText(text,x+w/2,y+h/2+6);g.textAlign='left';
   };
-  Object.entries(UPG).forEach(([key,u],i)=>{
+  if(portState.settings){
+    g.fillStyle='#132229';g.fillRect(6,6,500,500);g.fillStyle='#efe6d2';g.font='700 25px sans-serif';g.fillText('Настройки VR',24,40);
+    for(const [i,[attr,label]] of vrOptions.entries()){
+      const current=document.querySelector('[data-'+attr+'][aria-pressed="true"]');
+      button(attr,label+' · '+(current?.textContent||'Выбрать'),24,53+i*47,464,38,true);
+    }
+  }else Object.entries(UPG).forEach(([key,u],i)=>{
     const y=207+i*73,lvl=save[key],next=lvl+1,max=next>=u.vals.length,can=!max&&save.money>=u.cost[next];
     g.fillStyle='#efe6d2';g.font='600 18px sans-serif';g.fillText(u.name+' · ур. '+(lvl+1)+'/'+u.vals.length,24,y+17);
     g.fillStyle='#b3ab98';g.font='13px sans-serif';g.fillText(u.desc[lvl],24,y+37,307);
     g.fillStyle=can?'#7fe0c0':'#b3ab98';g.fillText(max?'Улучшено полностью':u.cost[next]+' монет · '+(can?'хватает':'не хватает'),24,y+56);
     button(key,max?'Куплено':'Купить',354,y+5,134,44,can);
   });
-  button('again','Снова в море',24,444,464,42,true);
+  button('again','Выйти в море',24,444,225,42,true);
+  button('settings',portState.settings?'Лавка':'Настройки VR',260,444,228,42,true);
   g.fillStyle='#b3ab98';g.font='13px sans-serif';g.fillText('Наведите луч от руки · Курок — нажать',24,505);
   panelTex.needsUpdate=true;vrPanel.visible=true;
 }
@@ -565,8 +605,9 @@ function placeVRPanel(){
   if(d.lengthSq()<.5)d.set(0,0,-1);scene.attach(vrPanel);vrPanel.position.copy(p).addScaledVector(d,1.65);vrPanel.position.y-=.10;vrPanel.lookAt(p);
 }
 const portRaycaster=new THREE.Raycaster(),portRays=new Map();
+const vrOptions=[['rodhand','Удочка'],['reelmode','Катушка'],['move','Передвижение'],['haptic','Вибрация'],['eye','Высота глаз'],['cast','Помощь при забросе'],['detail','Детализация'],['tags','Подписи']];
 function updateVRShop(){
-  const active=renderer.xr.isPresenting&&S.gameState==='port',hover=new Set();let click=null;
+  const active=renderer.xr.isPresenting&&S.gameState!=='sea'&&vrPanel.visible,hover=new Set();let click=null;
   for(const h of Object.values(HANDS)){
     if(!h?.src)continue;let line=portRays.get(h);
     if(!line){const g=new THREE.BufferGeometry().setFromPoints([V(),V(0,0,-1)]);line=new THREE.Line(g,new THREE.LineBasicMaterial({color:0xd0a54c,transparent:true,opacity:.8,depthTest:false}));line.renderOrder=21;h.ctl.add(line);portRays.set(h,line);}
@@ -582,7 +623,15 @@ function updateVRShop(){
   }
   for(const [h,line] of portRays)if(!h.src||!active)line.visible=false;
   if(!active){portState.hover.clear();return;}
-  if(click){hapPulse(click.h,.35,30);if(click.key==='again'){sfx.click();startTrip();return;}buyUpgrade(click.key);}
+  if(click){
+    hapPulse(click.h,.35,30);
+    if(click.key==='again'){sfx.click();startTrip();return;}
+    if(click.key==='settings')portState.settings=!portState.settings;
+    else if(portState.settings){
+      const choices=[...document.querySelectorAll('[data-'+click.key+']')];
+      choices[(choices.findIndex(b=>b.getAttribute('aria-pressed')==='true')+1)%choices.length].click();
+    }else buyUpgrade(click.key);
+  }
   const changed=hover.size!==portState.hover.size||[...hover].some(k=>!portState.hover.has(k));
   portState.hover=hover;if(changed||click)drawVRPanel(portState.reason,portState.total);
 }
@@ -621,9 +670,9 @@ function updateHUD(dt){
     else setHint('t-empty',board.loading?'Рыба ложится на доску…':'Стол пуст. <kbd>E</kbd> к борту');return;
   }
   switch(F.state){
-    case 'ready':setHint('ready'+F.hasLure,F.hasLure?'Зажмите <kbd>ЛКМ</kbd> для замаха, отпустите для заброса. <kbd>1–5</kbd> сменить приманку':'Приманки нет. Привяжите новую: <kbd>1–5</kbd>');break;
+    case 'ready':setHint('ready'+F.hasLure,F.hasLure?'<kbd>ЛКМ</kbd> — замах и заброс. Держите <kbd>L</kbd>, чтобы опустить приманку у борта. <kbd>1–5</kbd> — приманки':'Приманки нет. Привяжите новую: <kbd>1–5</kbd>');break;
     case 'wind':setHint('wind','Отпустите, чтобы забросить');break;case 'flying':setHint('fly','');break;
-    case 'water':setHint(F.bite?'bite':'water',F.bite?'<b>Клюёт…</b> После сильного рывка — мышь резко вверх или <kbd>Пробел</kbd>':'Держите <kbd>ЛКМ</kbd>, чтобы подматывать. <kbd>E</kbd> к столу');break;
+    case 'water':setHint(F.bite?'bite':'water',F.bite?'<b>Клюёт…</b> Выберите слабину. Подсечка — мышь вверх или <kbd>Пробел</kbd>':'<kbd>ЛКМ</kbd> — подмотать, <kbd>L</kbd> — отпустить леску, <kbd>E</kbd> — к столу');break;
     case 'hooked':setHint('hooked','Держите <kbd>ЛКМ</kbd>, чтобы выбирать. <kbd>Колесо</kbd> — фрикцион. Красная шкала — ослабьте');break;
     case 'landing':setHint('landing','<b>Рыба у борта!</b> Мышь вверх или <kbd>Пробел</kbd>');break;
   }
@@ -633,20 +682,11 @@ function drawWrist(dt){
   const g=wristCanvas.getContext('2d');g.clearRect(0,0,512,320);g.fillStyle='rgba(12,22,27,.88)';g.beginPath();g.roundRect(0,0,512,320,26);g.fill();
   g.fillStyle='#b3ab98';g.font='500 24px "Golos Text",sans-serif';g.fillText('ШТОРМ',22,38);g.fillStyle='rgba(239,230,210,.15)';g.fillRect(120,22,370,14);g.fillStyle='#d0a54c';g.fillRect(120,22,370*S.storm,14);
   g.fillStyle='#efe6d2';g.font='600 26px "Golos Text",sans-serif';g.fillText(F.hasLure?LU[F.lureId].name:'без приманки',22,80);
-  const tut=TUT[save.tutorial];let text,col='#d0a54c';
-  if(vrMsg.t>0){text=vrMsg.text;}else if(tut){text='Шаг '+(save.tutorial+1)+'/'+TUT.length+'. '+tut.t;col='#7fe0c0';}else text=vrHint();
+  wrist.visible=vrMsg.t>0;if(!wrist.visible)return;const text=vrMsg.text,col='#d0a54c';
   g.fillStyle=col;g.font='600 26px "Golos Text",sans-serif';const words=text.split(' ');let line='',y=152;
   for(const w of words){if(g.measureText(line+w).width>468){g.fillText(line,22,y);y+=32;line='';if(y>312)break;}line+=w+' ';}if(y<=312)g.fillText(line,22,y);
   wristTex.needsUpdate=true;
 }
-function vrHint(){
-  if(knifeItem.heldBy)return `Острота ножа ${Math.round(S.sharp*100)}%. Органы тоже режутся. Плашмя по коже — снять лоскут и взять рукой. В кость упирается: рубите или пилите. Точило — на столе`;
-  if(scalerItem.heldBy)return 'Водите чешуечисткой по коже: чешуя слетает. Рыба без чешуи стоит дороже';
-  switch(F.state){case 'ready':return rodInHand()?(F.hasLure?'Зажмите A/X, махните и отпустите. Курок — распустить леску. Приманку можно взять рукой и отстегнуть курком':'Карабин пуст: возьмите приманку из ящика и поднесите к карабину'):'Удочка в держателе у борта, подсак слева от неё, нож у стола';
-    case 'water':return F.bite?'Клюёт! Ждите рывка и подсекайте вверх':LU[F.lureId].hint;
-    case 'hooked':return 'Крутите катушку. Правый стик вверх-вниз: фрикцион';case 'landing':return 'Подмотайте и спокойно поднимите удилище — рыба выйдет из воды. Крупную (больше 6 кг) — подсаком';default:return '';}
-}
-
 /* ---------- desktop camera ---------- */
 let viewBlend=0;const camSea=V(0,1.62,0),qSea=new THREE.Quaternion(),qTable=new THREE.Quaternion(),camTable=V();const _m1=new THREE.Matrix4();
 function updateCamera(dt){
@@ -682,7 +722,7 @@ function frame(){
   const vr=renderer.xr.isPresenting;
   if(vr){
     if(HANDS.left&&wrist.parent!==HANDS.left.grip)HANDS.left.grip.add(wrist);
-    if(S.gameState==='sea'){vrLocomotion(dt);for(const k of ['left','right']){const h=HANDS[k];if(h)updateHand(h,dt,h.src&&h.src.gamepad);}fishingVR(dt);vrKnife(dt);vrScaler(dt);}
+    if(S.gameState==='sea'){vrLocomotion(dt);atlas.update(HANDS);for(const k of ['left','right']){const h=HANDS[k];if(h&&!h.atlasPress)updateHand(h,dt,h.src&&h.src.gamepad);}fishingVR(dt);vrKnife(dt);vrScaler(dt);}
     vrButtons(dt);updateVRShop();
     for(const k of ['left','right']){const h=HANDS[k];if(h)animateHand(h,dt);}
     updateTags(HANDS,dt);
@@ -709,6 +749,6 @@ function frame(){
 rodToDesk();
 renderer.setAnimationLoop(frame);
 window.__game={KN,evalPose,kneeNear,BODY_LOCAL,KN_EDGE,hapLog,scalerItem,scaler,vrScaler,deckOK,walk,descale,forceHook,liftOrNet,THREE,CANNON,S,F,camera,scene,boat,fishRoot,rig,HANDS,updateHand,vrKnife,fishingVR,knife,rod,net,board,items,pieceItems,world,save,mouse,links,knifeItem,rodItem,netItem,
-  startTrip,endTrip,toIce,toBucket,knifeSweep,evaluate,autoHeight,buyUpgrade,vrPanel,portState,updateVRShop,
+  startTrip,endTrip,toIce,toBucket,knifeSweep,evaluate,autoHeight,buyUpgrade,atlas,vrPanel,portState,updateVRShop,
   step:n=>{stepDt=1/30;for(let i=0;i<n;i++)frame();stepDt=0;},
   spawnDeck:(id,L)=>{const sp=SP[id];const len=L||lerp(sp.len[0],sp.len[1],.5);const f=newFish(sp,len,Math.round(sp.k*len**3*100)/100);const ob=buildFish(f);boat.add(ob.g);ob.g.position.copy(DECK_SPOT).add(V(0,.15,0));ob.g.quaternion.setFromAxisAngle(UP,Math.PI/2);return addPiece(ob);}};

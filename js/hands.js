@@ -71,7 +71,7 @@ export function animateHand(h,dt){
   const gp=h.src&&h.src.gamepad;
   let target;
   if(h.crank){/* the free hand is drawn on the reel handle by fishing.js */target=POSES.crank;}
-  else if(h.heldLure||h.lureHold)target=POSES.lure;
+  else if(h.heldLure||h.lureHold||h.filletLift)target=POSES.lure;
   else if(h.held&&h.pinch)target=POSES.lure;
   else if(h.held){
     const it=h.held;

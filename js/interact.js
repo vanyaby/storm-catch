@@ -3,7 +3,9 @@ import { THREE, S, V, UP, clamp, rand, damp, save, knifeMult, scene, camera, ren
   HOLSTER, DECK_SPOT, fishRoot, Mat, sfx, msg, label, fmtKg, splash, fly } from './core.js';
 import { hapPulse, hapCont, hapBoth, bindHands } from './haptics.js';
 import { CANNON, world, G_STATIC, G_PIECE, G_ORGAN, G_TOOL } from './physics.js';
-import { M, damageOrgan, evaluate, massOf, matAt, sampler, bodyShape, cutPiece, addNotch, nearPlane, inCavity } from './fishbody.js';
+import { M, damageOrgan, organPlaneIntersects, evaluate, massOf, matAt, sampler, bodyShape, cutPiece, detachFillet, addNotch, nearPlane, inCavity } from './fishbody.js';
+import { recordFlank, splitFlanks } from './fillet.js';
+import { startFilletLift, updateFilletLift, endFilletLift } from './fillet-lift.js';
 
 export const items=[];          // everything a hand can take: {type:'piece'|'tool', obj, body, com, vobj?, tool?, heldBy, ...}
 export const links=[];          // organs hanging from an opened fish
@@ -48,6 +50,7 @@ export function rebuildBody(it){
   for(const h of Object.values(HANDS))if(h&&h.held===it&&h.p2p){world.removeConstraint(h.p2p);h.p2p=null;regrab(h);}
 }
 export function removeItem(it){
+  endFilletLift(it.vobj?.lift?.hand);
   for(const l of [...links])if(l.a===it||l.b===it)unlink(l,true);
   for(const h of Object.values(HANDS))if(h&&h.held===it)dropHeld(h,true);
   if(mouse.it===it)mouseRelease();
@@ -82,6 +85,7 @@ export function releaseOrgan(fishIt,org,hang){
   const ob=fishIt.vobj;const i=ob.organs.indexOf(org);if(i<0)return null;ob.organs.splice(i,1);
   org.g.position.copy(ob.g.position);org.g.quaternion.copy(ob.g.quaternion);boat.add(org.g);
   const it=addPiece(org,fishIt.body?{v:fishIt.body.velocity.clone(),w:new CANNON.Vec3()}:null);
+  if(fishIt.body)rebuildBody(fishIt);
   if(hang)link(fishIt,it,org.anchor);
   S.fn.tut?.('organ');
   return it;
@@ -161,7 +165,7 @@ function dropHeld(h,silent){
   it.body.wakeUp();
 }
 export function releaseHand(h){
-  if(!h)return;const it=h.held;dropHeld(h,true);if(it)S.fn.onRelease?.(it,h);
+  if(!h)return;endFilletLift(h);const it=h.held;dropHeld(h,true);if(it)S.fn.onRelease?.(it,h);
   S.fn.onHandRelease?.(h);
   if(h.hover)setHi(h.hover,false);
   if(h.p2p){world.removeConstraint(h.p2p);h.p2p=null;}
@@ -187,7 +191,17 @@ function nearestFor(h){
   }
   // organs inside an opened fish
   for(const it of pieceItems()){const ob=it.vobj;if(!ob.open||!ob.organs.length)continue;
-    for(const org of ob.organs){const box=new THREE.Box3().setFromObject(org.g);if(box.isEmpty())continue;box.expandByScalar(.03);if(box.containsPoint(hp)){const d=-.1;if(d<bd){bd=d;best={type:'organIn',fish:it,org};}}}}
+    for(const org of ob.organs){
+      const box=new THREE.Box3().setFromObject(org.g);
+      if(box.isEmpty()||box.distanceToPoint(hp)>.025)continue;
+      const local=org.g.worldToLocal(hp.clone());
+      let nearest=Infinity;
+      for(let i=0;i<org.samples.N;i++)if(org.keep[i]){
+        nearest=Math.min(nearest,_v.fromArray(org.samples.pts,i*3).distanceToSquared(local));
+      }
+      const d=Math.sqrt(nearest)-.09;
+      if(nearest<.03**2&&d<bd){bd=d;best={type:'organIn',fish:it,org};}
+    }}
   return best;
 }
 export function updateHand(h,dt,gp){
@@ -195,6 +209,10 @@ export function updateHand(h,dt,gp){
   h.hist=h.hist||[];h.hist.push({t:now,p:hp.clone()});while(h.hist.length>5)h.hist.shift();
   const q=h.grip.getWorldQuaternion(new THREE.Quaternion());if(h.prevQ){const dq=q.clone().multiply(h.prevQ.clone().invert());const ang=2*Math.acos(clamp(dq.w,-1,1));const ax=V(dq.x,dq.y,dq.z);if(ax.lengthSq()>1e-8)ax.normalize();h.angVel=ax.multiplyScalar((ang>Math.PI?ang-2*Math.PI:ang)/Math.max(dt,1e-3));}h.prevQ=q;
   const sq=!!(gp&&gp.buttons[1]&&gp.buttons[1].pressed),tr=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.6);
+  if(h.filletLift){
+    if(tr)updateFilletLift(h);else endFilletLift(h);
+    h.prevSq=sq;h.prevTr=tr;return;
+  }
   if(h.crank||h.lid||h.heldLure||S.fn.lureHeldBy?.(h)){h.prevSq=sq;h.prevTr=tr;return;}            // the reel owns this hand while cranking
   const grabEdge=!h.held&&((sq&&!h.prevSq)?'sq':(tr&&!h.prevTr)?'tr':null);
   if(!h.held){
@@ -202,7 +220,8 @@ export function updateHand(h,dt,gp){
     if(cand!==h.hover){if(h.hover&&h.hover.type)setHi(h.hover,false);h.hover=cand;if(cand){setHi(cand,true);hapPulse(h,.12,12);}}
     if(grabEdge){h.grabBtn=grabEdge;h.pinch=grabEdge==='tr';}
     if(grabEdge&&!S.fn.handGrabSpecial?.(h)){
-      if(n&&n.type==='organIn'){const it=releaseOrgan(n.fish,n.org,false);if(it){sfx.squelch();grabPiece(h,it);}}
+      if(n?.type==='piece'&&h.pinch&&startFilletLift(h,n.vobj)){hapPulse(h,.16,30);}
+      else if(n&&n.type==='organIn'){const it=releaseOrgan(n.fish,n.org,false);if(it){sfx.squelch();grabPiece(h,it);}}
       else if(n&&n.type==='tool'&&h.pinch){msg('Инструмент — всей рукой','Возьмите боковой кнопкой',1.2);}
       else if(n&&n.type==='tool'&&n.heldBy&&n.heldBy!==h&&!n.follow){
         // a second hand on a tool: the tool turns around the first hand toward the second one
@@ -324,14 +343,22 @@ export function cutStep(eP,eN,opts={}){
       for(let j=0;j<eN.length&&!crossed;j++)for(let k=0;k<=steps;k++)if(sm(eP[j].clone().lerp(eN[j],k/steps))){crossed=true;break;}
       if(!crossed)continue;
     }
-    if(!st){st={quads:[],n:V(),pts:[],idle:0,chop:false};strokes.set(it,st);}
-    st.idle=0;if(opts.chop)st.chop=true;if(cav)st.cav=true;
     const L=toLocal(it,[eP[0],eP[eP.length-1],eN[0],eN[eN.length-1]]);
     const ed=L[3].clone().sub(L[2]),mv=L[2].clone().add(L[3]).sub(L[0]).sub(L[1]).multiplyScalar(.5);
     const qn=ed.clone().cross(mv);
+    res.removed+=inN;
+    if(ob.kind==='fish'&&qn.lengthSq()>1e-14){
+      const pass=recordFlank(ob,[L[0],L[1],L[3],L[2]],qn,opts.chop);
+      if(pass?.handled){
+        if(st){strokes.delete(it);tryFinish(it,st,true,opts);}
+        if(pass.complete)separate(it,null,0,pass.seam);
+        continue;
+      }
+    }
+    if(!st){st={quads:[],n:V(),pts:[],idle:0,chop:false};strokes.set(it,st);}
+    st.idle=0;if(opts.chop)st.chop=true;if(cav)st.cav=true;
     if(qn.lengthSq()>1e-12){if(st.n.lengthSq()>0&&qn.dot(st.n)<0)qn.negate();st.n.add(qn);}
     if(mv.lengthSq()>1e-10){st.quads.push([L[0],L[1],L[3],L[2]]);st.pts.push(...L);}
-    res.removed+=inN;
     if(ob.kind==='organ'&&opts.vr){if(st.testT===S.T)continue;st.testT=S.T;}
     if(tryFinish(it,st,false,opts))strokes.delete(it);
   }
@@ -348,6 +375,32 @@ function inTri2(p,a,b,c,eps){
   const seg=(u,v)=>{const dx=v.x-u.x,dy=v.y-u.y,l=dx*dx+dy*dy||1e-12;const t=clamp(((p.x-u.x)*dx+(p.y-u.y)*dy)/l,0,1);return Math.hypot(p.x-u.x-dx*t,p.y-u.y-dy*t);};
   return seg(a,b)<eps||seg(b,c)<eps||seg(c,a)<eps;
 }
+function separate(it,n,c,finished){
+  const ob=it.vobj,nb=finished?detachFillet(ob,finished.side):cutPiece(ob,n,c);if(!nb)return false;
+  ob.fish.alive=false;
+  if(it.organParent){
+    const parent=it.organParent.vobj;nb.g.position.set(0,0,0);nb.g.quaternion.identity();parent.organs.push(nb);parent.g.add(nb.g);
+  }else{
+    const vel={v:it.body.velocity.clone(),w:it.body.angularVelocity.clone()};
+    boat.add(nb.g);const nit=addPiece(nb,vel);S.fn.onPiece?.(nit);rebuildBody(it);S.fn.onSplit?.(it,[nb]);
+    if(ob.kind==='fish'){
+      const lift=ob.lift;
+      if(lift){
+        const {hand,seam,amount}=lift;
+        const releasedFillet=seam===finished?nb:null;
+        endFilletLift(hand);
+        if(releasedFillet&&!releasedFillet.item.heldBy&&releasedFillet.item.body.mass<=1.5){
+          const held=releasedFillet.item;
+          held.obj.position.add(V(0,amount*seam.side,0).applyQuaternion(held.obj.quaternion));
+          placeBody(held);grabPiece(hand,held);
+        }
+      }
+      splitFlanks(ob,nb,finished);
+    }
+  }
+  sfx.chop();S.cutSound=1;openedMsg(ob);openedMsg(nb);
+  return true;
+}
 function tryFinish(it,st,final,opts){
   const ob=it.vobj;if(!st.quads.length||st.n.lengthSq()<1e-14)return final;
   const n=st.n.clone().normalize();let c=0;for(const p of st.pts)c+=n.dot(p);c/=st.pts.length;
@@ -358,16 +411,10 @@ function tryFinish(it,st,final,opts){
   let inside=0,boneHit=false;const f=ob.fish;
   for(const p of near){const p2=P2(p);if(Q.some(q=>inTri2(p2,q[0],q[1],q[2],.004)||inTri2(p2,q[0],q[2],q[3],.004)))inside++;}
   if(ob.kind==='fish'&&!st.chop&&!opts.vr){for(let i=0;i<f.N;i++){if(!ob.keep[i]||f.mat[i]!==M.BONE)continue;const x=f.pts[i*3],y=f.pts[i*3+1],z=f.pts[i*3+2];if(Math.abs(n.x*x+n.y*y+n.z*z-c)<.002){const p2=P2(V(x,y,z));if(Q.some(q=>inTri2(p2,q[0],q[1],q[2],0)||inTri2(p2,q[0],q[2],q[3],0))){boneHit=true;break;}}}}
-  if(inside&&ob.kind==='organ'&&Math.abs(n.dot(ob.c)-c)<Math.hypot(n.x*ob.r.x,n.y*ob.r.y,n.z*ob.r.z))damageOrgan(ob);
+  if(inside&&ob.kind==='organ'&&organPlaneIntersects(ob,n,c))damageOrgan(ob);
   const cover=near.length?inside/near.length:0;
   if(near.length&&cover>=.96&&!boneHit){
-    const nb=cutPiece(ob,n,c);
-    if(nb){ob.fish.alive=false;
-      if(it.organParent){const parent=it.organParent.vobj;nb.g.position.set(0,0,0);nb.g.quaternion.identity();parent.organs.push(nb);parent.g.add(nb.g);}
-      else{const vel={v:it.body.velocity.clone(),w:it.body.angularVelocity.clone()};boat.add(nb.g);const nit=addPiece(nb,vel);S.fn.onPiece?.(nit);rebuildBody(it);S.fn.onSplit?.(it,[nb]);}
-      sfx.chop();S.cutSound=1;openedMsg(ob);openedMsg(nb);
-      // the hand keeps the part it is holding; nothing else changes
-    }
+    separate(it,n,c);
     return true;
   }
   if(final){

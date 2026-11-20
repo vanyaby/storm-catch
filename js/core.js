@@ -143,7 +143,7 @@ export const wind=V(.6,0,-.2).normalize();
 
 /* ---------------- boat (stands still) ---------------- */
 export const boat=new THREE.Group();boat.position.y=.05;scene.add(boat);
-function hullShape(inset){const s=new THREE.Shape(),w=1.25-inset;s.moveTo(-3.1+inset,-w);s.lineTo(1.4,-w);s.quadraticCurveTo(3.0-inset,-w*.8,3.7-inset*1.6,0);s.quadraticCurveTo(3.0-inset,w*.8,1.4,w);s.lineTo(-3.1+inset,w);s.lineTo(-3.1+inset,-w);return s;}
+export function hullShape(inset){const s=new THREE.Shape(),w=1.25-inset;s.moveTo(-3.1+inset,-w);s.lineTo(1.4,-w);s.quadraticCurveTo(3.0-inset,-w*.8,3.7-inset*1.6,0);s.quadraticCurveTo(3.0-inset,w*.8,1.4,w);s.lineTo(-3.1+inset,w);s.lineTo(-3.1+inset,-w);return s;}
 function ringShape(outer,inner){const s=hullShape(outer);const h=hullShape(inner);s.holes.push(new THREE.Path(h.getPoints(6).reverse()));return s;}
 {
   const hullG=new THREE.ExtrudeGeometry(hullShape(0),{depth:1.05,bevelEnabled:false,curveSegments:5});hullG.rotateX(Math.PI/2);boat.add(new THREE.Mesh(hullG,Mat(0x7a2b22)));
