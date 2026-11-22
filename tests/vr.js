@@ -77,15 +77,15 @@ try{
   press(right,4,false);tick();
   expect('Tapping A cannot launch the lure',g.F.state==='ready'&&g.F.bail==='closed');
   for(let i=0;i<150;i++)tick();
-  press(right,3,true);tick();press(right,3,false);
+  press(right,0,true);tick();press(right,0,false);
   expect('Opening a stationary spool drops lure without a forward launch',
     g.F.state==='flying'&&Math.hypot(g.F.lureVel.x,g.F.lureVel.z)<.35&&g.F.lureVel.y<0);
   // Start another cast from the holder's settled line.
   g.F.state='ready';g.F.line=.4;g.F.bail='closed';
   for(let i=0;i<60;i++)tick();
-  press(right,4,true);press(right,3,true);tick();press(right,3,false);
+  press(right,4,true);press(right,0,true);tick();press(right,0,false);
   const pinned=g.F.line;
-  expect('Stick opens bail while A holds the line',g.F.state==='ready'&&g.F.bail==='open');
+  expect('Trigger opens bail while A holds the line',g.F.state==='ready'&&g.F.bail==='open');
   for(let i=0;i<12;i++){right.grip.position.z-=.075;right.grip.position.y+=.023;tick();}
   press(right,4,false);
   expect('Swing against finger brake preserves length',g.F.line===pinned);tick();
@@ -97,6 +97,8 @@ try{
   for(let i=0;i<24;i++)tick();
   expect('Finger brake stops underwater payout',g.F.line===stopped);
   press(right,4,false);tick();
+  press(right,0,true);tick();press(right,0,false);tick();
+  expect('Second trigger press closes the bail',g.F.bail==='closed');
   const {hapFlush}=await import('./js/haptics.js');hapFlush();
   expect('Feedback reaches rod controller',pulses.some(([h,v])=>h==='right'&&v>0));
   press(left,5,true);g.step(48);press(left,5,false);

@@ -552,9 +552,10 @@ export function fishingVR(dt){
     const gp=rh.src&&rh.src.gamepad;const trig=!!(gp&&gp.buttons[4]&&gp.buttons[4].pressed);   // A or X on the rod hand: the finger holds the line
     if(save.reelMode==='hand')F.reel=crank.held&&F.bail==='closed'?clamp(crank.rate/(TAU*1.5),0,1.2):0;
     else{const o=freeHand();const og=o&&o.src&&o.src.gamepad;F.reel=o&&!o.atlasPress&&!o.held&&!o.lid&&!o.heldLure&&!o.lureHold&&!o.crank&&og&&og.buttons[0]?og.buttons[0].value:0;if(F.reel>.1&&F.bail==='open')setBail(false);}
-    const stick=!!gp?.buttons[3]?.pressed;
-    if(stick&&!rh.spoolClick&&F.hasLure)setBail(true);
-    rh.spoolClick=stick;
+    // Trigger on the rod hand: press opens the bail and the line runs (unless A/X brakes it); press again to close it.
+    const spoolBtn=!!(gp&&gp.buttons[0]&&gp.buttons[0].value>.5);
+    if(spoolBtn&&!rh.spoolClick&&F.hasLure)setBail(F.bail!=='open');
+    rh.spoolClick=spoolBtn;
     F.fingerBrake=trig;rh.fingerLine=trig;
     if(trig)F.reel=0;
     const free=F.bail==='open'&&!trig;
